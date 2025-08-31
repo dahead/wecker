@@ -1,7 +1,7 @@
 {
   "hour_24_format": true,
   "show_seconds": false,
-  "font_name": "nancyj-fancy",
+  "font_name": "ogre",
   "brightness": 6,
   "backlight": 5,
   "alarm1": {
@@ -47,8 +47,9 @@
     "alarm_source_value": "include/sounds/soother/noise5.tone"
   },
   "snooze_minutes": 10,
-  "sleep_minutes": 60,
   "player_command": "mpv",
   "last_radio_url": "",
-  "last_mp3_path": ""
+  "last_mp3_path": "",
+  "buzzer_dir": "include/sounds/buzzer",
+  "soother_dir": "include/sounds/soother"
 }

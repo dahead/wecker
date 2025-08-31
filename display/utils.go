@@ -8,15 +8,15 @@ import (
 )
 
 // getAvailableFiles returns available files for the given alarm source
-func getAvailableFiles(source config.AlarmSource) []string {
+func getAvailableFiles(source config.AlarmSource, cfg *config.Config) []string {
 	var files []string
 	var searchDir string
 
 	switch source {
 	case config.SourceBuzzer:
-		searchDir = "include/sounds/buzzer"
+		searchDir = cfg.BuzzerDir
 	case config.SourceSoother:
-		searchDir = "include/sounds/soother"
+		searchDir = cfg.SootherDir
 	default:
 		return files
 	}

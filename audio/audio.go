@@ -36,8 +36,8 @@ func NewPlayer(cfg *config.Config) *Player {
 
 // discoverToneFiles finds all .tone files in buzzer and soother directories
 func (p *Player) discoverToneFiles() {
-	buzzerDir := "include/sounds/buzzer"
-	sootherDir := "include/sounds/soother"
+	buzzerDir := p.config.BuzzerDir
+	sootherDir := p.config.SootherDir
 
 	p.buzzerFiles = findToneFiles(buzzerDir)
 	p.sootherFiles = findToneFiles(sootherDir)

@@ -221,7 +221,7 @@ func (m *Manager) GetAlarmState(alarmID int) AlarmState {
 
 // SetSnoozeTime updates the snooze duration
 func (m *Manager) SetSnoozeTime(minutes int) {
-	validMinutes := []int{5, 10, 15, 30}
+	validMinutes := []int{5, 7, 10, 15, 30, 45, 60, 90, 120}
 	for _, valid := range validMinutes {
 		if minutes == valid {
 			m.config.SnoozeMinutes = minutes

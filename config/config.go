@@ -57,12 +57,15 @@ type Config struct {
 
 	// Timers
 	SnoozeMinutes int `json:"snooze_minutes"` // 5, 10, 15, 30
-	SleepMinutes  int `json:"sleep_minutes"`  // 15, 30, 45, 60, 90, 120 - DEPRECATED, use SleepTimer.Duration
 
 	// Audio settings
 	PlayerCommand string `json:"player_command"` // e.g., "mpv"
 	LastRadioURL  string `json:"last_radio_url"`
 	LastMP3Path   string `json:"last_mp3_path"`
+
+	// Sound directories
+	BuzzerDir  string `json:"buzzer_dir"`  // Directory containing buzzer .tone files
+	SootherDir string `json:"soother_dir"` // Directory containing soother .tone files
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -98,8 +101,9 @@ func DefaultConfig() *Config {
 			Volume:   30, // Lower volume for sleep timer
 		},
 		SnoozeMinutes: 5,
-		SleepMinutes:  60,
 		PlayerCommand: "mpv",
+		BuzzerDir:     "include/sounds/buzzer",
+		SootherDir:    "include/sounds/soother",
 	}
 }
 

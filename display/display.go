@@ -26,7 +26,6 @@ const (
 	StateSleepEdit
 	StateTimeInput
 	StateAlarmDays
-	StateAlarmSource
 	StateAlarmVolume
 	StateAlarmToneSelect
 	StateAlarmCustomPath
@@ -34,6 +33,8 @@ const (
 	StateSleepVolume
 	StateSleepSoundSelect
 	StateSleepCustomPath
+	StateBuzzerDirInput
+	StateSootherDirInput
 )
 
 // App holds the main TUI application
@@ -80,7 +81,7 @@ func NewApp(cfg *config.Config, alarmMgr *alarm.Manager, timerMgr *timer.Manager
 		state:        StateMainClock,
 		selectedMenu: 0,
 		// fontName is now stored in config
-		availableTones: discoverToneFiles(),
+		availableTones: discoverToneFiles(cfg),
 
 		// availableFonts: []string{"big", "small", "3d", "3x5", "5lineoblique", "alphabet", "banner", "doh", "isometric1", "letters", "alligator"},
 
@@ -234,10 +235,7 @@ func NewApp(cfg *config.Config, alarmMgr *alarm.Manager, timerMgr *timer.Manager
 			"wavy",
 			"weird"},
 
-		// available fonts:
-		//
-
-		// Modern hacker-style color scheme
+		// Modern color scheme
 		titleStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#00FF00")).
 			Bold(true).
@@ -342,6 +340,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.app.state = StateSleepEdit
 				m.app.selectedMenu = 0
 				m.app.customPathInput = "" // Clear input on cancel
+			case StateBuzzerDirInput:
+				m.app.state = StateSettings
+				m.app.selectedMenu = 3
+				m.app.customPathInput = "" // Clear input on cancel
+			case StateSootherDirInput:
+				m.app.state = StateSettings
+				m.app.selectedMenu = 4
+				m.app.customPathInput = "" // Clear input on cancel
 			case StateMainClock:
 				// Already at main clock, do nothing
 			default:
@@ -394,7 +400,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			if m.app.state == StateTimeInput {
 				return m.handleTimeInput(msg.String())
-			} else if m.app.state == StateAlarmCustomPath {
+			} else if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
 				return m.handleCustomPathInput(msg.String())
 			}
 		}
@@ -432,6 +438,10 @@ func (m Model) View() string {
 		return m.renderSleepSoundSelect()
 	case StateSleepCustomPath:
 		return m.renderSleepCustomPath()
+	case StateBuzzerDirInput:
+		return m.renderBuzzerDirInput()
+	case StateSootherDirInput:
+		return m.renderSootherDirInput()
 	default:
 		return m.renderMainClock()
 	}
@@ -655,7 +665,13 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		case 2: // Show Seconds
 			m.app.config.ShowSeconds = !m.app.config.ShowSeconds
 			m.app.config.Save()
-		case 3: // Back
+		case 3: // Buzzer Dir
+			m.app.state = StateBuzzerDirInput
+			m.app.customPathInput = m.app.config.BuzzerDir
+		case 4: // Soother Dir
+			m.app.state = StateSootherDirInput
+			m.app.customPathInput = m.app.config.SootherDir
+		case 5: // Back
 			m.app.state = StateMainClock
 			m.app.selectedMenu = 0
 		}
@@ -788,7 +804,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			alarm = &m.app.config.Alarm2
 		}
 		if m.app.selectedMenu < len(m.app.availableTones) {
-			alarm.AlarmSourceValue = "include/sounds/buzzer/" + m.app.availableTones[m.app.selectedMenu]
+			alarm.AlarmSourceValue = m.app.config.BuzzerDir + "/" + m.app.availableTones[m.app.selectedMenu]
 			m.app.config.Save()
 			m.app.state = StateAlarmEdit
 			m.app.selectedMenu = 5
@@ -812,9 +828,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		// Volume handled by left/right keys
 	case StateSleepSoundSelect:
 		// Select soother sound
-		availableSounds := getAvailableFiles(config.SourceSoother)
+		availableSounds := getAvailableFiles(config.SourceSoother, m.app.config)
 		if m.app.selectedMenu < len(availableSounds) {
-			m.app.config.SleepTimer.AlarmSourceValue = "include/sounds/soother/" + availableSounds[m.app.selectedMenu]
+			m.app.config.SleepTimer.AlarmSourceValue = m.app.config.SootherDir + "/" + availableSounds[m.app.selectedMenu]
 			m.app.config.Save()
 			m.app.state = StateSleepEdit
 			m.app.selectedMenu = 4
@@ -824,6 +840,20 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.app.config.SleepTimer.AlarmSourceValue = m.app.customPathInput
 		m.app.config.Save()
 		m.app.state = StateSleepEdit
+		m.app.selectedMenu = 4
+		m.app.customPathInput = ""
+	case StateBuzzerDirInput:
+		// Save buzzer directory
+		m.app.config.BuzzerDir = m.app.customPathInput
+		m.app.config.Save()
+		m.app.state = StateSettings
+		m.app.selectedMenu = 3
+		m.app.customPathInput = ""
+	case StateSootherDirInput:
+		// Save soother directory
+		m.app.config.SootherDir = m.app.customPathInput
+		m.app.config.Save()
+		m.app.state = StateSettings
 		m.app.selectedMenu = 4
 		m.app.customPathInput = ""
 	}
@@ -909,7 +939,7 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 			m.app.selectedMenu++
 		}
 	case StateSleepSoundSelect:
-		availableSounds := getAvailableFiles(config.SourceSoother)
+		availableSounds := getAvailableFiles(config.SourceSoother, m.app.config)
 		if m.app.selectedMenu < len(availableSounds)-1 {
 			m.app.selectedMenu++
 		}
@@ -1111,6 +1141,8 @@ func (m Model) renderSettings() string {
 		fmt.Sprintf("Font: %s", m.app.config.FontName),
 		fmt.Sprintf("24H Format: %s", getBoolText(m.app.config.Hour24Format)),
 		fmt.Sprintf("Show Seconds: %s", getBoolText(m.app.config.ShowSeconds)),
+		fmt.Sprintf("Buzzer Dir: %s", m.app.config.BuzzerDir),
+		fmt.Sprintf("Soother Dir: %s", m.app.config.SootherDir),
 		"Back",
 	}
 
@@ -1124,7 +1156,7 @@ func (m Model) renderSettings() string {
 	}
 
 	content.WriteString("\n")
-	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  F to change font  •  ENTER to toggle  •  ESC to return"))
+	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  ENTER to toggle  •  ESC to return"))
 
 	return content.String()
 }
@@ -1149,6 +1181,7 @@ func (m Model) renderAlarmEdit() string {
 		fmt.Sprintf("Time: %s", alarm.Time[:5]),
 		fmt.Sprintf("Days: %s", m.getActiveDaysString(alarm.Days)),
 		fmt.Sprintf("Volume: %d%%", alarm.Volume),
+		fmt.Sprintf("Volume Ramp: %s", getBoolText(alarm.VolumeRamp)),
 		fmt.Sprintf("Source: %s", alarm.Source),
 	}
 
@@ -1465,7 +1498,7 @@ func (m Model) renderSleepSoundSelect() string {
 	content.WriteString(m.app.titleStyle.Render(title))
 	content.WriteString("\n\n")
 
-	availableSounds := getAvailableFiles(config.SourceSoother)
+	availableSounds := getAvailableFiles(config.SourceSoother, m.app.config)
 
 	for i, sound := range availableSounds {
 		if i == m.app.selectedMenu {
@@ -1525,6 +1558,60 @@ func (m Model) renderSleepCustomPath() string {
 	return content.String()
 }
 
+// Render buzzer directory input screen
+func (m Model) renderBuzzerDirInput() string {
+	var content strings.Builder
+
+	title := "🔊 BUZZER DIRECTORY CONFIGURATION"
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+	content.WriteString("Enter directory path containing buzzer .tone files:\n")
+	content.WriteString("Examples: /home/user/sounds/buzzer, include/sounds/buzzer\n\n")
+
+	inputDisplay := m.app.customPathInput
+	if len(inputDisplay) == 0 {
+		inputDisplay = "/path/to/buzzer/sounds"
+	}
+
+	content.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#00FFFF")).
+		Background(lipgloss.Color("#333333")).
+		Padding(0, 1).
+		Render(fmt.Sprintf(" %s_ ", inputDisplay)))
+
+	content.WriteString("\n\n")
+	content.WriteString(m.app.instructionStyle.Render("Type directory path  •  ENTER to save  •  ESC to cancel"))
+
+	return content.String()
+}
+
+// Render soother directory input screen
+func (m Model) renderSootherDirInput() string {
+	var content strings.Builder
+
+	title := "🌙 SOOTHER DIRECTORY CONFIGURATION"
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+	content.WriteString("Enter directory path containing soother .tone files:\n")
+	content.WriteString("Examples: /home/user/sounds/soother, include/sounds/soother\n\n")
+
+	inputDisplay := m.app.customPathInput
+	if len(inputDisplay) == 0 {
+		inputDisplay = "/path/to/soother/sounds"
+	}
+
+	content.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#00FFFF")).
+		Background(lipgloss.Color("#333333")).
+		Padding(0, 1).
+		Render(fmt.Sprintf(" %s_ ", inputDisplay)))
+
+	content.WriteString("\n\n")
+	content.WriteString(m.app.instructionStyle.Render("Type directory path  •  ENTER to save  •  ESC to cancel"))
+
+	return content.String()
+}
+
 // Run starts the application
 func (app *App) Run() error {
 	_, err := app.program.Run()
@@ -1560,8 +1647,8 @@ func (app *App) SetFocus(alarmID int) {
 }
 
 // discoverToneFiles scans for available .tone files in the buzzer directory
-func discoverToneFiles() []string {
-	toneDir := "include/sounds/buzzer"
+func discoverToneFiles(cfg *config.Config) []string {
+	toneDir := cfg.BuzzerDir
 	var tones []string
 
 	files, err := os.ReadDir(toneDir)
