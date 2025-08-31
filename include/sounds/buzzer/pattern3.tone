@@ -1,0 +1,4 @@
+loop 20 {
+    tone NOTE_E6 300ms
+    tone NOTE_C5 300ms
+}

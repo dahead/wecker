@@ -1,0 +1,193 @@
+package config
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+// AlarmSource represents different types of alarm sounds
+type AlarmSource string
+
+const (
+	SourceBuzzer  AlarmSource = "buzzer"
+	SourceMP3     AlarmSource = "mp3"
+	SourceRadio   AlarmSource = "radio"
+	SourceSoother AlarmSource = "soother"
+)
+
+// Alarm represents a single alarm configuration
+type Alarm struct {
+	ID          int         `json:"id"`
+	Enabled     bool        `json:"enabled"`
+	Time        string      `json:"time"` // HH:MM format
+	Days        []bool      `json:"days"` // 7 days, Sunday=0
+	Source      AlarmSource `json:"source"`
+	Volume      int         `json:"volume"`      // 1-100
+	BuzzerType  int         `json:"buzzer_type"` // 1-5
+	MP3Path     string      `json:"mp3_path"`
+	RadioURL    string      `json:"radio_url"`
+	SootherType int         `json:"soother_type"` // 1-27
+	VolumeRamp  bool        `json:"volume_ramp"`  // Progressive volume increase
+}
+
+// Config represents the application configuration
+type Config struct {
+	// Display settings
+	Hour24Format bool `json:"hour_24_format"`
+	ShowSeconds  bool `json:"show_seconds"` // Show seconds in time display
+	Brightness   int  `json:"brightness"`   // 1-10
+	Backlight    int  `json:"backlight"`    // 1-10
+
+	// Alarms
+	Alarm1 Alarm `json:"alarm1"`
+	Alarm2 Alarm `json:"alarm2"`
+
+	// Timers
+	SnoozeMinutes int `json:"snooze_minutes"` // 5, 10, 15, 30
+	SleepMinutes  int `json:"sleep_minutes"`  // 15, 30, 45, 60, 90, 120
+
+	// Audio settings
+	PlayerCommand   string `json:"player_command"` // e.g., "mpv"
+	LastRadioURL    string `json:"last_radio_url"`
+	LastMP3Path     string `json:"last_mp3_path"`
+	LastSootherType int    `json:"last_soother_type"`
+}
+
+// DefaultConfig returns a configuration with sensible defaults
+func DefaultConfig() *Config {
+	return &Config{
+		Hour24Format: true,
+		ShowSeconds:  true,
+		Brightness:   5,
+		Backlight:    5,
+		Alarm1: Alarm{
+			ID:         1,
+			Enabled:    false,
+			Time:       "07:00",
+			Days:       []bool{false, true, true, true, true, true, false}, // Mon-Fri
+			Source:     SourceBuzzer,
+			Volume:     50,
+			BuzzerType: 1,
+			VolumeRamp: true,
+		},
+		Alarm2: Alarm{
+			ID:         2,
+			Enabled:    false,
+			Time:       "07:30",
+			Days:       []bool{false, true, true, true, true, true, false}, // Mon-Fri
+			Source:     SourceBuzzer,
+			Volume:     50,
+			BuzzerType: 2,
+			VolumeRamp: true,
+		},
+		SnoozeMinutes:   5,
+		SleepMinutes:    60,
+		PlayerCommand:   "mpv",
+		LastSootherType: 1,
+	}
+}
+
+// Load loads configuration from config.json
+func Load() (*Config, error) {
+	configPath := getConfigPath()
+
+	// If config file doesn't exist, create it with defaults
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		cfg := DefaultConfig()
+		if saveErr := cfg.Save(); saveErr != nil {
+			return cfg, fmt.Errorf("failed to save default config: %v", saveErr)
+		}
+		return cfg, nil
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %v", err)
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %v", err)
+	}
+
+	return &cfg, nil
+}
+
+// Save saves the configuration to config.json
+func (c *Config) Save() error {
+	configPath := getConfigPath()
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %v", err)
+	}
+
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %v", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %v", err)
+	}
+
+	return nil
+}
+
+// IsAlarmActive checks if an alarm should be active for the given time
+func (a *Alarm) IsAlarmActive(t time.Time) bool {
+	if !a.Enabled {
+		return false
+	}
+
+	// Check if today is enabled
+	weekday := int(t.Weekday()) // Sunday = 0
+	if !a.Days[weekday] {
+		return false
+	}
+
+	// Check if current time matches alarm time (within 1 minute)
+	currentTimeStr := t.Format("15:04")
+	return currentTimeStr == a.Time
+}
+
+// FormatTime formats time according to 12/24 hour setting
+func (c *Config) FormatTime(t time.Time) string {
+	if c.Hour24Format {
+		if c.ShowSeconds {
+			return t.Format("15:04:05")
+		}
+		return t.Format("15:04")
+	}
+	if c.ShowSeconds {
+		return t.Format("3:04:05 PM")
+	}
+	return t.Format("3:04 PM")
+}
+
+// getConfigPath returns the path to the config file
+func getConfigPath() string {
+	return "config.json"
+}
+
+// GetSootherNames returns the names of available sound soother options
+func GetSootherNames() []string {
+	return []string{
+		"Ocean Waves", "Rain Forest", "Thunder Storm", "White Noise", "Pink Noise",
+		"Brown Noise", "Creek", "Waterfall", "Wind", "Fire Crackling",
+		"Birds Chirping", "Cafe", "Library", "Fan", "Air Conditioner",
+		"City Rain", "Forest Night", "Beach", "Mountain Stream", "Desert Wind",
+		"Space Ambient", "Deep Ocean", "Morning Birds", "Evening Cricket", "Zen Garden",
+		"Himalayan Bowls", "Celtic Rain",
+	}
+}
+
+// GetBuzzerNames returns the names of available buzzer sounds
+func GetBuzzerNames() []string {
+	return []string{
+		"Classic Beep", "Digital Chirp", "Gentle Bell", "Urgent Alert", "Soft Tone",
+	}
+}

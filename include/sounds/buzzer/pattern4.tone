@@ -1,0 +1,8 @@
+loop 10 {
+    tone NOTE_A5 150ms
+    delay 100ms
+    tone NOTE_A5 150ms
+    delay 100ms
+    tone NOTE_A5 150ms
+    delay 1000ms
+}

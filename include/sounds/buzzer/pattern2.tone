@@ -1,0 +1,16 @@
+loop 5 {
+    tone NOTE_A4 200ms
+    delay 2000ms
+}
+loop 10 {
+    tone NOTE_A4 200ms
+    delay 1000ms
+}
+loop 20 {
+    tone NOTE_A4 200ms
+    delay 500ms
+}
+loop 35 {
+    tone NOTE_A4 200ms
+    delay 150ms
+}
