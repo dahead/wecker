@@ -128,6 +128,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %v", err)
 	}
 
+	// Always reset sleep timer duration to 0 on app start
+	cfg.SleepTimer.Duration = 0
+
 	return &cfg, nil
 }
 

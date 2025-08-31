@@ -286,9 +286,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case tea.KeyMsg:
-		// Handle sleep timer stop on any key press when active
-		if m.app.timerManager.IsTimerActive(timer.TypeSleep) && m.app.state == StateMainClock {
-			// Stop sleep timer on any button press when active
+		// Handle sleep timer stop with 'S' key when active
+		if m.app.timerManager.IsTimerActive(timer.TypeSleep) && m.app.state == StateMainClock && msg.String() == "S" {
+			// Stop sleep timer only on 'S' key press when active
 			m.app.timerManager.StopTimer(timer.TypeSleep)
 			return m, nil
 		}
