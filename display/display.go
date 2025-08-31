@@ -14,7 +14,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/common-nighthawk/go-figure"
 )
 
 // MenuState represents the current menu state
@@ -570,11 +569,127 @@ func (app *App) getStatusText() string {
 	return statusText
 }
 
-// generateASCIIClock creates ASCII art for the current time using go-figure
+// generateASCIIClock creates ASCII art for the current time using simple large digits
 func (app *App) generateASCIIClock(timeStr string) string {
-	// Use go-figure to render the time string as ASCII art
-	ascii := figure.NewFigure(timeStr, "doom", true)
-	return ascii.String()
+	// Create large ASCII digits for time display
+	digits := map[rune][]string{
+		'0': {
+			"  ███  ",
+			" █   █ ",
+			" █   █ ",
+			" █   █ ",
+			" █   █ ",
+			"  ███  ",
+		},
+		'1': {
+			"   █   ",
+			"  ██   ",
+			"   █   ",
+			"   █   ",
+			"   █   ",
+			" █████ ",
+		},
+		'2': {
+			" █████ ",
+			"     █ ",
+			" █████ ",
+			" █     ",
+			" █     ",
+			" █████ ",
+		},
+		'3': {
+			" █████ ",
+			"     █ ",
+			" █████ ",
+			"     █ ",
+			"     █ ",
+			" █████ ",
+		},
+		'4': {
+			" █   █ ",
+			" █   █ ",
+			" █████ ",
+			"     █ ",
+			"     █ ",
+			"     █ ",
+		},
+		'5': {
+			" █████ ",
+			" █     ",
+			" █████ ",
+			"     █ ",
+			"     █ ",
+			" █████ ",
+		},
+		'6': {
+			" █████ ",
+			" █     ",
+			" █████ ",
+			" █   █ ",
+			" █   █ ",
+			" █████ ",
+		},
+		'7': {
+			" █████ ",
+			"     █ ",
+			"    █  ",
+			"   █   ",
+			"  █    ",
+			" █     ",
+		},
+		'8': {
+			" █████ ",
+			" █   █ ",
+			" █████ ",
+			" █   █ ",
+			" █   █ ",
+			" █████ ",
+		},
+		'9': {
+			" █████ ",
+			" █   █ ",
+			" █████ ",
+			"     █ ",
+			"     █ ",
+			" █████ ",
+		},
+		':': {
+			"       ",
+			"  ██   ",
+			"  ██   ",
+			"       ",
+			"  ██   ",
+			"  ██   ",
+		},
+		' ': {
+			"       ",
+			"       ",
+			"       ",
+			"       ",
+			"       ",
+			"       ",
+		},
+	}
+
+	// Split time string into characters
+	chars := []rune(timeStr)
+	lines := make([]string, 6)
+
+	// Build each line of the ASCII art
+	for lineIndex := 0; lineIndex < 6; lineIndex++ {
+		var line strings.Builder
+		for _, char := range chars {
+			if digitLines, exists := digits[char]; exists {
+				line.WriteString(digitLines[lineIndex])
+			} else {
+				// Default to space for unknown characters
+				line.WriteString("       ")
+			}
+		}
+		lines[lineIndex] = line.String()
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // addSideControls adds UP/DOWN control text to the right side
