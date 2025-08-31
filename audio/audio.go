@@ -144,7 +144,7 @@ func (p *Player) PlayAlarm(alarm *config.Alarm) error {
 	}
 }
 
-// PlaySleepAudio plays audio for sleep timer (last used source)
+// PlaySleepAudio plays audio for sleep timer using configured settings
 func (p *Player) PlaySleepAudio() error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -152,27 +152,52 @@ func (p *Player) PlaySleepAudio() error {
 	// Stop any currently playing audio
 	p.stopInternal()
 
-	// Use last played source (priority: radio > mp3 > soother)
-	if p.config.LastRadioURL != "" {
-		return p.startPlayback(p.config.LastRadioURL, 50, false)
-	} else if p.config.LastMP3Path != "" {
-		return p.startPlayback(p.config.LastMP3Path, 50, false)
-	} else {
-		// Default to first soother .tone file using ToneParser
-		if len(p.sootherFiles) > 0 {
-			p.isPlaying = true
-			p.currentVolume = 50
-			p.startTime = time.Now()
+	sleepTimer := &p.config.SleepTimer
 
-			// Play tone file in a goroutine to avoid blocking
-			go func() {
-				tone.PlayToneFile(p.sootherFiles[0])
-			}()
-
-			return nil
+	switch sleepTimer.Source {
+	case config.SourceSoother:
+		// Use ToneParser for soother sounds
+		var toneFile string
+		if sleepTimer.AlarmSourceValue != "" {
+			toneFile = sleepTimer.AlarmSourceValue
 		} else {
-			return fmt.Errorf("no soother .tone files found")
+			// Select from discovered files
+			if len(p.sootherFiles) > 0 {
+				toneFile = p.sootherFiles[0] // Use first available file
+			} else {
+				return fmt.Errorf("no soother .tone files found")
+			}
 		}
+
+		p.isPlaying = true
+		p.currentVolume = sleepTimer.Volume
+		p.startTime = time.Now()
+
+		// Play tone file in a goroutine to avoid blocking
+		go func() {
+			tone.PlayToneFile(toneFile)
+		}()
+
+		return nil
+
+	case config.SourceMP3:
+		// Use PlayerCommand for MP3
+		audioPath := sleepTimer.AlarmSourceValue
+		if audioPath == "" {
+			audioPath = p.config.LastMP3Path
+		}
+		return p.startPlayback(audioPath, sleepTimer.Volume, false)
+
+	case config.SourceRadio:
+		// Use PlayerCommand for radio
+		audioPath := sleepTimer.AlarmSourceValue
+		if audioPath == "" {
+			audioPath = p.config.LastRadioURL
+		}
+		return p.startPlayback(audioPath, sleepTimer.Volume, false)
+
+	default:
+		return fmt.Errorf("unknown sleep timer source: %s", sleepTimer.Source)
 	}
 }
 

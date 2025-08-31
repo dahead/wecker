@@ -1,31 +1,13 @@
 {
   "hour_24_format": true,
   "show_seconds": true,
-  "font_name": "doh",
+  "font_name": "doom",
   "brightness": 6,
   "backlight": 5,
   "alarm1": {
     "id": 1,
     "enabled": true,
-    "time": "21:18:00",
-    "days": [
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      false
-    ],
-    "source": "buzzer",
-    "volume": 50,
-    "alarm_source_value": "include/sounds/buzzer/pattern3.tone",
-    "volume_ramp": true
-  },
-  "alarm2": {
-    "id": 2,
-    "enabled": false,
-    "time": "07:30",
+    "time": "05:45:00",
     "days": [
       false,
       true,
@@ -40,9 +22,30 @@
     "alarm_source_value": "include/sounds/buzzer/pattern5.tone",
     "volume_ramp": true
   },
+  "alarm2": {
+    "id": 2,
+    "enabled": true,
+    "time": "06:00:00",
+    "days": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ],
+    "source": "buzzer",
+    "volume": 75,
+    "alarm_source_value": "include/sounds/buzzer/pattern5.tone",
+    "volume_ramp": true
+  },
   "sleep_timer": {
     "enabled": true,
-    "duration": 15
+    "duration": 15,
+    "source": "soother",
+    "volume": 70,
+    "alarm_source_value": "include/sounds/soother/noise1.tone"
   },
   "snooze_minutes": 10,
   "sleep_minutes": 60,

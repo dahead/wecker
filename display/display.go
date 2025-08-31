@@ -30,6 +30,9 @@ const (
 	StateAlarmVolume
 	StateAlarmToneSelect
 	StateAlarmCustomPath
+	StateSleepVolume
+	StateSleepSoundSelect
+	StateSleepCustomPath
 )
 
 // App holds the main TUI application
@@ -130,6 +133,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case tea.KeyMsg:
+		// Handle sleep timer stop on any key press when active
+		if m.app.timerManager.IsTimerActive(timer.TypeSleep) && m.app.state == StateMainClock {
+			// Stop sleep timer on any button press when active
+			m.app.timerManager.StopTimer(timer.TypeSleep)
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			// IMPORTANT: Save config before quitting to fix alarm settings saving issue
@@ -147,10 +157,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.app.state = StateMainClock
 				m.app.selectedMenu = m.app.editingAlarm - 1
 			case StateSleepEdit:
+				// Start sleep timer when leaving settings if enabled
+				if m.app.config.SleepTimer.Enabled {
+					m.app.timerManager.StartSleepTimer(m.app.config.SleepTimer.Duration)
+				}
 				m.app.state = StateMainClock
 				m.app.selectedMenu = 3 // Sleep menu index
 			case StateTimeInput, StateAlarmDays, StateAlarmVolume, StateAlarmToneSelect, StateAlarmCustomPath:
 				m.app.state = StateAlarmEdit
+				m.app.selectedMenu = 0
+				m.app.customPathInput = "" // Clear input on cancel
+			case StateSleepVolume, StateSleepSoundSelect, StateSleepCustomPath:
+				m.app.state = StateSleepEdit
 				m.app.selectedMenu = 0
 				m.app.customPathInput = "" // Clear input on cancel
 			case StateMainClock:
@@ -227,6 +245,12 @@ func (m Model) View() string {
 		return m.renderAlarmToneSelect()
 	case StateAlarmCustomPath:
 		return m.renderAlarmCustomPath()
+	case StateSleepVolume:
+		return m.renderSleepVolume()
+	case StateSleepSoundSelect:
+		return m.renderSleepSoundSelect()
+	case StateSleepCustomPath:
+		return m.renderSleepCustomPath()
 	default:
 		return m.renderMainClock()
 	}
@@ -318,10 +342,17 @@ func (m Model) renderAlarmStatus() string {
 	sleepIcon := "😴"
 	colorSleep := "#666666"
 	var sleepText string
-	if m.app.config.SleepTimer.Enabled {
+
+	// Check if sleep timer is actually running
+	if m.app.timerManager.IsTimerActive(timer.TypeSleep) {
 		sleepIcon = "🌙"
 		colorSleep = "#00FF00"
-		sleepText = fmt.Sprintf("%s SLEEP: %dm [ON]", sleepIcon, m.app.config.SleepTimer.Duration)
+		remaining := m.app.timerManager.GetTimeRemaining(timer.TypeSleep)
+		sleepText = fmt.Sprintf("%s SLEEP: %s", sleepIcon, timer.FormatTimeRemaining(remaining))
+	} else if m.app.config.SleepTimer.Enabled {
+		sleepIcon = "🌙"
+		colorSleep = "#FFFF00" // Yellow for enabled but not running
+		sleepText = fmt.Sprintf("%s SLEEP: %dm [READY]", sleepIcon, m.app.config.SleepTimer.Duration)
 	} else {
 		sleepText = fmt.Sprintf("%s SLEEP: %dm [OFF]", sleepIcon, m.app.config.SleepTimer.Duration)
 	}
@@ -467,30 +498,57 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			}
 		}
 	case StateSleepEdit:
+		sleepTimer := &m.app.config.SleepTimer
+		maxOptions := 4 // Enabled, Duration, Volume, Source
+		if sleepTimer.Source == config.SourceSoother {
+			maxOptions = 5 // Add Sound selection
+		} else if sleepTimer.Source == config.SourceMP3 || sleepTimer.Source == config.SourceRadio {
+			maxOptions = 5 // Add Custom path
+		}
+
 		switch m.app.selectedMenu {
 		case 0: // Toggle enabled
-			m.app.config.SleepTimer.Enabled = !m.app.config.SleepTimer.Enabled
+			sleepTimer.Enabled = !sleepTimer.Enabled
 			m.app.config.Save()
-			// Start or stop the sleep timer based on enabled state
-			if m.app.config.SleepTimer.Enabled {
-				m.app.timerManager.StartSleepTimer(m.app.config.SleepTimer.Duration)
-			} else {
-				m.app.timerManager.StopTimer(timer.TypeSleep)
-			}
 		case 1: // Change duration
 			validDurations := []int{15, 30, 45, 60, 90, 120}
 			currentIndex := 0
 			for i, duration := range validDurations {
-				if duration == m.app.config.SleepTimer.Duration {
+				if duration == sleepTimer.Duration {
 					currentIndex = i
 					break
 				}
 			}
-			m.app.config.SleepTimer.Duration = validDurations[(currentIndex+1)%len(validDurations)]
+			sleepTimer.Duration = validDurations[(currentIndex+1)%len(validDurations)]
 			m.app.config.Save()
-		case 2: // Back
-			m.app.state = StateMainClock
-			m.app.selectedMenu = 3 // Sleep menu index
+		case 2: // Volume
+			m.app.state = StateSleepVolume
+		case 3: // Change source
+			sources := []config.AlarmSource{config.SourceSoother, config.SourceMP3, config.SourceRadio}
+			currentIndex := 0
+			for i, source := range sources {
+				if source == sleepTimer.Source {
+					currentIndex = i
+					break
+				}
+			}
+			sleepTimer.Source = sources[(currentIndex+1)%len(sources)]
+			// Reset source value when changing source
+			sleepTimer.AlarmSourceValue = ""
+			m.app.config.Save()
+		case 4: // Source-specific options
+			if sleepTimer.Source == config.SourceSoother {
+				m.app.state = StateSleepSoundSelect
+				m.app.selectedMenu = 0
+			} else if sleepTimer.Source == config.SourceMP3 || sleepTimer.Source == config.SourceRadio {
+				m.app.state = StateSleepCustomPath
+				m.app.customPathInput = sleepTimer.AlarmSourceValue
+			}
+		default: // Back
+			if m.app.selectedMenu >= maxOptions {
+				m.app.state = StateMainClock
+				m.app.selectedMenu = 3 // Sleep menu index
+			}
 		}
 	case StateTimeInput:
 		// Process time input and save - ENTER leaves time set menu as requested
@@ -538,6 +596,24 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.app.config.Save()
 		m.app.state = StateAlarmEdit
 		m.app.selectedMenu = 5
+		m.app.customPathInput = ""
+	case StateSleepVolume:
+		// Volume handled by left/right keys
+	case StateSleepSoundSelect:
+		// Select soother sound
+		availableSounds := getAvailableFiles(config.SourceSoother)
+		if m.app.selectedMenu < len(availableSounds) {
+			m.app.config.SleepTimer.AlarmSourceValue = "include/sounds/soother/" + availableSounds[m.app.selectedMenu]
+			m.app.config.Save()
+			m.app.state = StateSleepEdit
+			m.app.selectedMenu = 4
+		}
+	case StateSleepCustomPath:
+		// Save custom path for sleep timer
+		m.app.config.SleepTimer.AlarmSourceValue = m.app.customPathInput
+		m.app.config.Save()
+		m.app.state = StateSleepEdit
+		m.app.selectedMenu = 4
 		m.app.customPathInput = ""
 	}
 
@@ -599,7 +675,13 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 			m.app.selectedMenu++
 		}
 	case StateSleepEdit:
-		maxItems := 3 // Enabled, Duration, Back
+		sleepTimer := &m.app.config.SleepTimer
+		maxItems := 5 // Enabled, Duration, Volume, Source, Back
+		if sleepTimer.Source == config.SourceSoother {
+			maxItems = 6 // Add Sound selection
+		} else if sleepTimer.Source == config.SourceMP3 || sleepTimer.Source == config.SourceRadio {
+			maxItems = 6 // Add Custom path
+		}
 		if m.app.selectedMenu < maxItems-1 {
 			m.app.selectedMenu++
 		}
@@ -636,6 +718,16 @@ func (m Model) handleLeft() (tea.Model, tea.Cmd) {
 			}
 			m.app.config.Save()
 		}
+	case StateSleepVolume:
+		// Decrease sleep timer volume
+		sleepTimer := &m.app.config.SleepTimer
+		if sleepTimer.Volume > 0 {
+			sleepTimer.Volume -= 5
+			if sleepTimer.Volume < 0 {
+				sleepTimer.Volume = 0
+			}
+			m.app.config.Save()
+		}
 	}
 	return m, nil
 }
@@ -658,6 +750,16 @@ func (m Model) handleRight() (tea.Model, tea.Cmd) {
 			alarm.Volume += 5
 			if alarm.Volume > 100 {
 				alarm.Volume = 100
+			}
+			m.app.config.Save()
+		}
+	case StateSleepVolume:
+		// Increase sleep timer volume
+		sleepTimer := &m.app.config.SleepTimer
+		if sleepTimer.Volume < 100 {
+			sleepTimer.Volume += 5
+			if sleepTimer.Volume > 100 {
+				sleepTimer.Volume = 100
 			}
 			m.app.config.Save()
 		}
@@ -842,11 +944,37 @@ func (m Model) renderSleepEdit() string {
 	content.WriteString(m.app.titleStyle.Render(title))
 	content.WriteString("\n\n")
 
+	sleepTimer := &m.app.config.SleepTimer
+
 	menuOptions := []string{
-		fmt.Sprintf("Enabled: %s", getBoolText(m.app.config.SleepTimer.Enabled)),
-		fmt.Sprintf("Duration: %d minutes", m.app.config.SleepTimer.Duration),
-		"Back",
+		fmt.Sprintf("Enabled: %s", getBoolText(sleepTimer.Enabled)),
+		fmt.Sprintf("Duration: %d minutes", sleepTimer.Duration),
+		fmt.Sprintf("Volume: %d%%", sleepTimer.Volume),
+		fmt.Sprintf("Source: %s", sleepTimer.Source),
 	}
+
+	// Add source-specific options
+	if sleepTimer.Source == config.SourceSoother {
+		soundFile := sleepTimer.AlarmSourceValue
+		if soundFile == "" {
+			soundFile = "noise1.tone"
+		}
+		menuOptions = append(menuOptions, fmt.Sprintf("Sound: %s", soundFile))
+	} else if sleepTimer.Source == config.SourceMP3 {
+		mp3Path := sleepTimer.AlarmSourceValue
+		if mp3Path == "" {
+			mp3Path = "<not set>"
+		}
+		menuOptions = append(menuOptions, fmt.Sprintf("MP3 Path: %s", mp3Path))
+	} else if sleepTimer.Source == config.SourceRadio {
+		radioURL := sleepTimer.AlarmSourceValue
+		if radioURL == "" {
+			radioURL = "<not set>"
+		}
+		menuOptions = append(menuOptions, fmt.Sprintf("Radio URL: %s", radioURL))
+	}
+
+	menuOptions = append(menuOptions, "Back")
 
 	for i, option := range menuOptions {
 		if i == m.app.selectedMenu {
@@ -1009,6 +1137,97 @@ func (m Model) renderAlarmCustomPath() string {
 	inputDisplay := m.app.customPathInput
 	if len(inputDisplay) == 0 {
 		if alarm.Source == config.SourceMP3 {
+			inputDisplay = "/path/to/music/"
+		} else {
+			inputDisplay = "http://radio.url"
+		}
+	}
+
+	content.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#00FFFF")).
+		Background(lipgloss.Color("#333333")).
+		Padding(0, 1).
+		Render(fmt.Sprintf(" %s_ ", inputDisplay)))
+
+	content.WriteString("\n\n")
+	content.WriteString(m.app.instructionStyle.Render("Type path/URL  •  ENTER to save  •  ESC to cancel"))
+
+	return content.String()
+}
+
+// Render sleep timer volume control screen
+func (m Model) renderSleepVolume() string {
+	var content strings.Builder
+
+	title := "🔊 VOLUME FOR SLEEP TIMER"
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+
+	sleepTimer := &m.app.config.SleepTimer
+
+	content.WriteString(fmt.Sprintf("Current Volume: %d%%\n\n", sleepTimer.Volume))
+
+	// Volume bar
+	barWidth := 20
+	filledBars := int(float64(sleepTimer.Volume) / 100.0 * float64(barWidth))
+	volumeBar := strings.Repeat("█", filledBars) + strings.Repeat("░", barWidth-filledBars)
+	content.WriteString(fmt.Sprintf("[%s] %d%%\n\n", volumeBar, sleepTimer.Volume))
+
+	content.WriteString(m.app.instructionStyle.Render("←→ to adjust volume  •  ESC to return"))
+
+	return content.String()
+}
+
+// Render sleep timer sound selection screen
+func (m Model) renderSleepSoundSelect() string {
+	var content strings.Builder
+
+	title := "🎵 SELECT SOOTHER SOUND FOR SLEEP TIMER"
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+
+	availableSounds := getAvailableFiles(config.SourceSoother)
+
+	for i, sound := range availableSounds {
+		if i == m.app.selectedMenu {
+			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s ", sound)))
+		} else {
+			content.WriteString(fmt.Sprintf("   %s", sound))
+		}
+		content.WriteString("\n")
+	}
+
+	content.WriteString("\n")
+	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  ENTER to select  •  ESC to return"))
+
+	return content.String()
+}
+
+// Render sleep timer custom path input screen
+func (m Model) renderSleepCustomPath() string {
+	var content strings.Builder
+
+	sleepTimer := &m.app.config.SleepTimer
+
+	var title, prompt, example string
+	if sleepTimer.Source == config.SourceMP3 {
+		title = "🎵 MP3 PATH FOR SLEEP TIMER"
+		prompt = "Enter MP3 file or directory path:"
+		example = "Examples: /home/user/music/sleep.mp3, /home/user/music/"
+	} else if sleepTimer.Source == config.SourceRadio {
+		title = "📻 RADIO URL FOR SLEEP TIMER"
+		prompt = "Enter radio stream URL:"
+		example = "Examples: http://stream.com/radio.m3u, https://radio.com/stream"
+	}
+
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+	content.WriteString(prompt + "\n")
+	content.WriteString(example + "\n\n")
+
+	inputDisplay := m.app.customPathInput
+	if len(inputDisplay) == 0 {
+		if sleepTimer.Source == config.SourceMP3 {
 			inputDisplay = "/path/to/music/"
 		} else {
 			inputDisplay = "http://radio.url"

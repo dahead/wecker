@@ -32,8 +32,11 @@ type Alarm struct {
 
 // SleepTimer represents a sleep timer configuration
 type SleepTimer struct {
-	Enabled  bool `json:"enabled"`
-	Duration int  `json:"duration"` // Duration in minutes: 15, 30, 45, 60, 90, 120
+	Enabled          bool        `json:"enabled"`
+	Duration         int         `json:"duration"`           // Duration in minutes: 15, 30, 45, 60, 90, 120
+	Source           AlarmSource `json:"source"`             // Sound source: soother, mp3, radio
+	Volume           int         `json:"volume"`             // 1-100
+	AlarmSourceValue string      `json:"alarm_source_value"` // file path for .tone/.mp3 files or directory/playlist path
 }
 
 // Config represents the application configuration
@@ -91,6 +94,8 @@ func DefaultConfig() *Config {
 		SleepTimer: SleepTimer{
 			Enabled:  false,
 			Duration: 60, // Default 60 minutes
+			Source:   SourceSoother,
+			Volume:   30, // Lower volume for sleep timer
 		},
 		SnoozeMinutes: 5,
 		SleepMinutes:  60,
