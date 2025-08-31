@@ -36,7 +36,6 @@ func main() {
 				if alarmCfg.Source != config.SourceBuzzer {
 					fallbackAlarm := *alarmCfg
 					fallbackAlarm.Source = config.SourceBuzzer
-					fallbackAlarm.BuzzerType = 1
 					audioPlayer.PlayAlarm(&fallbackAlarm)
 				}
 			}

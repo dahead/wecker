@@ -2,6 +2,8 @@ package display
 
 import (
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,9 @@ const (
 	StateTimeEdit
 	StateDaysEdit
 	StateSourceEdit
+	StateSourceTypeSelect
+	StateSourceFileSelect
+	StateSourceStringInput
 )
 
 // MainMenuItem represents items in the main menu
@@ -70,6 +75,11 @@ type App struct {
 	inMenu              bool
 	timeEditPosition    int
 	currentEditingAlarm *config.Alarm
+	// Source configuration fields
+	availableFiles    []string // Available files for current source type
+	selectedFileIndex int      // Index of selected file
+	stringInput       string   // String input for mp3/radio paths
+	stringEditMode    bool     // Whether we're editing the string input
 }
 
 // Model represents the bubbletea model
@@ -141,9 +151,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down":
 			// Down button
 			m.handleDownButton()
-		case "enter", " ":
+		case "enter":
 			// Select button
 			m.handleSelectButton()
+		case " ":
+			// Space - play button for file selection or select for other menus
+			if m.app.menuState == StateSourceFileSelect {
+				m.handlePlayButton()
+			} else {
+				m.handleSelectButton()
+			}
 		case "left":
 			// Left navigation (for time editing)
 			m.handleLeftButton()
@@ -153,12 +170,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			// Escape (cancel editing)
 			m.handleEscapeButton()
+		case "backspace":
+			// Backspace for string editing
+			if m.app.menuState == StateSourceStringInput && m.app.stringEditMode && len(m.app.stringInput) > 0 {
+				m.app.stringInput = m.app.stringInput[:len(m.app.stringInput)-1]
+			}
 		case "d", "D":
 			// Dimmer button
 			m.handleDimmerButton()
 		case "h", "H":
 			// Sleep timer hold
 			m.handleSleepTimerHold()
+		default:
+			// Handle character input for string editing
+			if m.app.menuState == StateSourceStringInput && m.app.stringEditMode {
+				if len(msg.String()) == 1 {
+					char := msg.String()
+					// Allow alphanumeric, /, ., -, _ and space
+					if (char >= "a" && char <= "z") || (char >= "A" && char <= "Z") ||
+						(char >= "0" && char <= "9") || char == "/" || char == "." ||
+						char == "-" || char == "_" || char == " " || char == ":" {
+						m.app.stringInput += char
+					}
+				}
+			}
 		}
 	}
 	return m, nil
@@ -237,6 +272,12 @@ func (app *App) renderMenu() string {
 		return app.renderDaysEditMenu()
 	case StateSourceEdit:
 		return app.renderSourceEditMenu()
+	case StateSourceTypeSelect:
+		return app.renderSourceTypeSelectMenu()
+	case StateSourceFileSelect:
+		return app.renderSourceFileSelectMenu()
+	case StateSourceStringInput:
+		return app.renderSourceStringInputMenu()
 	default:
 		return app.renderMainMenu()
 	}
@@ -429,16 +470,25 @@ func (app *App) renderSourceEditMenu() string {
 		menuLines = append(menuLines, "==")
 
 		// Show current source configuration
+		valueText := currentAlarm.AlarmSourceValue
+		if valueText == "" {
+			valueText = "Not set"
+		}
+
 		switch currentAlarm.Source {
 		case config.SourceBuzzer:
-			menuLines = append(menuLines, fmt.Sprintf("==  Tone File: %s", currentAlarm.BuzzerTone))
+			menuLines = append(menuLines, fmt.Sprintf("==  Buzzer File: %s", valueText))
 		case config.SourceSoother:
-			menuLines = append(menuLines, fmt.Sprintf("==  Tone File: %s", currentAlarm.SootherTone))
+			menuLines = append(menuLines, fmt.Sprintf("==  Soother File: %s", valueText))
 		case config.SourceMP3:
-			menuLines = append(menuLines, fmt.Sprintf("==  Directory: %s", currentAlarm.MP3Directory))
+			menuLines = append(menuLines, fmt.Sprintf("==  MP3 Directory: %s", valueText))
 		case config.SourceRadio:
-			menuLines = append(menuLines, fmt.Sprintf("==  URL/M3U: %s", currentAlarm.RadioURL))
+			menuLines = append(menuLines, fmt.Sprintf("==  Radio URL/M3U: %s", valueText))
 		}
+
+		// Add options to configure the selected source
+		menuLines = append(menuLines, "==")
+		menuLines = append(menuLines, "==► CONFIGURE SOURCE")
 
 		menuLines = append(menuLines, "==")
 		menuLines = append(menuLines, "==► BACK")
@@ -463,6 +513,16 @@ func (app *App) getMaxMenuItems() int {
 		return 7 // TIME, ALARM 1, ALARM 2, BRIGHTNESS, BACKLIGHT, 12/24 HOURS, SECONDS
 	case StateAlarm1Menu, StateAlarm2Menu:
 		return 6 // ENABLED, TIME, DAYS, SOURCE, VOLUME, BACK
+	case StateSourceEdit:
+		return 6 // BUZZER, SOOTHER, MP3, RADIO, CONFIGURE SOURCE, BACK
+	case StateSourceTypeSelect:
+		return 5 // BUZZER, SOOTHER, MP3, RADIO, BACK
+	case StateSourceFileSelect:
+		return len(app.availableFiles) + 1 // Files + BACK
+	case StateSourceStringInput:
+		return 2 // SAVE, BACK
+	case StateDaysEdit:
+		return 8 // 7 days + BACK
 	default:
 		return 7
 	}
@@ -610,7 +670,21 @@ func (m *Model) handleUpButton() {
 		case StateTimeEdit:
 			// Increase time value at current cursor position
 			m.handleTimeValueChange(1)
-		case StateDaysEdit, StateSourceEdit:
+		case StateSourceFileSelect:
+			// Navigate up in file selection and update selectedFileIndex
+			maxItems := m.app.getMaxMenuItems()
+			if m.app.selectedItem > 0 {
+				m.app.selectedItem--
+				if m.app.selectedItem < len(m.app.availableFiles) {
+					m.app.selectedFileIndex = m.app.selectedItem
+				}
+			} else {
+				m.app.selectedItem = maxItems - 1
+				if m.app.selectedItem < len(m.app.availableFiles) {
+					m.app.selectedFileIndex = m.app.selectedItem
+				}
+			}
+		case StateDaysEdit, StateSourceEdit, StateSourceTypeSelect, StateSourceStringInput:
 			// Navigate up in editing menus
 			maxItems := m.app.getMaxMenuItems()
 			if m.app.selectedItem > 0 {
@@ -666,6 +740,16 @@ func (m *Model) handleSelectButton() {
 		m.handleAlarmMenuSelect(&m.app.config.Alarm1)
 	case StateAlarm2Menu:
 		m.handleAlarmMenuSelect(&m.app.config.Alarm2)
+	case StateSourceEdit:
+		m.handleSourceEditSelect()
+	case StateSourceTypeSelect:
+		m.handleSourceTypeSelect()
+	case StateSourceFileSelect:
+		m.handleSourceFileSelect()
+	case StateSourceStringInput:
+		m.handleSourceStringInputSelect()
+	case StateDaysEdit:
+		m.handleDaysEditSelect()
 	}
 }
 
@@ -782,6 +866,15 @@ func (m *Model) handleEscapeButton() {
 		m.app.menuState = m.app.previousMenuState
 		m.app.selectedItem = 0
 		m.app.currentEditingAlarm = nil
+	case StateSourceTypeSelect, StateSourceFileSelect:
+		m.app.menuState = StateSourceEdit
+		m.app.selectedItem = 0
+		m.app.availableFiles = nil
+	case StateSourceStringInput:
+		m.app.menuState = StateSourceEdit
+		m.app.selectedItem = 0
+		m.app.stringInput = ""
+		m.app.stringEditMode = false
 	case StateMainMenu:
 		// Exit menu mode
 		m.app.inMenu = false
@@ -837,4 +930,312 @@ func (m *Model) handleTimeValueChange(direction int) {
 
 	// Update the alarm time
 	m.app.currentEditingAlarm.Time = fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+}
+
+// getAvailableFiles returns a list of available files for the given source type
+func (app *App) getAvailableFiles(source config.AlarmSource) []string {
+	var files []string
+	var searchDir string
+
+	switch source {
+	case config.SourceBuzzer:
+		searchDir = "include/sounds/buzzer"
+	case config.SourceSoother:
+		searchDir = "include/sounds/soother"
+	default:
+		return files
+	}
+
+	matches, err := filepath.Glob(filepath.Join(searchDir, "*.tone"))
+	if err != nil {
+		return files
+	}
+
+	sort.Strings(matches)
+	return matches
+}
+
+// renderSourceTypeSelectMenu renders the source type selection interface
+func (app *App) renderSourceTypeSelectMenu() string {
+	var menuLines []string
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==                        *** SELECT ALARM SOURCE TYPE ***")
+	menuLines = append(menuLines, "==")
+
+	currentAlarm := app.currentEditingAlarm
+	if currentAlarm != nil {
+		sources := []config.AlarmSource{config.SourceBuzzer, config.SourceSoother, config.SourceMP3, config.SourceRadio}
+		sourceNames := []string{"BUZZER", "SOOTHER", "MP3", "RADIO"}
+
+		for i, source := range sources {
+			prefix := "==  "
+			if i == app.selectedItem {
+				prefix = "==► "
+			}
+
+			selected := ""
+			if currentAlarm.Source == source {
+				selected = " ◄"
+			}
+
+			menuLines = append(menuLines, fmt.Sprintf("%s%s%s", prefix, sourceNames[i], selected))
+		}
+
+		menuLines = append(menuLines, "==")
+		menuLines = append(menuLines, "==► BACK")
+	}
+
+	menuLines = append(menuLines, "==")
+	return strings.Join(menuLines, "\n")
+}
+
+// renderSourceFileSelectMenu renders the file selection interface for buzzer/soother
+func (app *App) renderSourceFileSelectMenu() string {
+	var menuLines []string
+	menuLines = append(menuLines, "==")
+
+	currentAlarm := app.currentEditingAlarm
+	if currentAlarm == nil {
+		return strings.Join(menuLines, "\n")
+	}
+
+	sourceType := strings.ToUpper(string(currentAlarm.Source))
+	menuLines = append(menuLines, fmt.Sprintf("==                        *** SELECT %s FILE ***", sourceType))
+	menuLines = append(menuLines, "==")
+
+	if len(app.availableFiles) == 0 {
+		app.availableFiles = app.getAvailableFiles(currentAlarm.Source)
+		app.selectedFileIndex = 0
+	}
+
+	for i, filePath := range app.availableFiles {
+		fileName := filepath.Base(filePath)
+		prefix := "==  "
+		if i == app.selectedFileIndex {
+			prefix = "==► "
+		}
+
+		selected := ""
+		if filePath == currentAlarm.AlarmSourceValue {
+			selected = " ◄"
+		}
+
+		// Add play button indicator
+		playButton := ""
+		if i == app.selectedFileIndex {
+			playButton = " [PLAY]"
+		}
+
+		menuLines = append(menuLines, fmt.Sprintf("%s%s%s%s", prefix, fileName, selected, playButton))
+	}
+
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==► BACK")
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==  Use UP/DOWN to browse, ENTER to select, SPACE to play")
+
+	return strings.Join(menuLines, "\n")
+}
+
+// renderSourceStringInputMenu renders the string input interface for mp3/radio
+func (app *App) renderSourceStringInputMenu() string {
+	var menuLines []string
+	menuLines = append(menuLines, "==")
+
+	currentAlarm := app.currentEditingAlarm
+	if currentAlarm == nil {
+		return strings.Join(menuLines, "\n")
+	}
+
+	sourceType := strings.ToUpper(string(currentAlarm.Source))
+	if currentAlarm.Source == config.SourceMP3 {
+		menuLines = append(menuLines, "==                    *** ENTER MP3 DIRECTORY PATH ***")
+	} else {
+		menuLines = append(menuLines, "==                 *** ENTER RADIO URL OR M3U PATH ***")
+	}
+	menuLines = append(menuLines, "==")
+
+	inputValue := app.stringInput
+	if inputValue == "" {
+		inputValue = currentAlarm.AlarmSourceValue
+	}
+
+	cursor := ""
+	if app.stringEditMode {
+		cursor = "_"
+	}
+
+	menuLines = append(menuLines, fmt.Sprintf("==  %s: %s%s", sourceType, inputValue, cursor))
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==► SAVE")
+	menuLines = append(menuLines, "==► BACK")
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==  Type path and press ENTER to save, ESC to cancel")
+
+	return strings.Join(menuLines, "\n")
+}
+
+// handleSourceEditSelect handles selection in the source edit menu
+func (m *Model) handleSourceEditSelect() {
+	currentAlarm := m.app.currentEditingAlarm
+	if currentAlarm == nil {
+		return
+	}
+
+	sources := []config.AlarmSource{config.SourceBuzzer, config.SourceSoother, config.SourceMP3, config.SourceRadio}
+
+	if m.app.selectedItem < len(sources) {
+		// Source type selection
+		currentAlarm.Source = sources[m.app.selectedItem]
+		currentAlarm.AlarmSourceValue = "" // Reset value when changing type
+	} else if m.app.selectedItem == len(sources) {
+		// CONFIGURE SOURCE option
+		switch currentAlarm.Source {
+		case config.SourceBuzzer, config.SourceSoother:
+			m.app.previousMenuState = m.app.menuState
+			m.app.menuState = StateSourceFileSelect
+			m.app.availableFiles = m.app.getAvailableFiles(currentAlarm.Source)
+			m.app.selectedFileIndex = 0
+			m.app.selectedItem = 0
+		case config.SourceMP3, config.SourceRadio:
+			m.app.previousMenuState = m.app.menuState
+			m.app.menuState = StateSourceStringInput
+			m.app.stringInput = currentAlarm.AlarmSourceValue
+			m.app.stringEditMode = false
+			m.app.selectedItem = 0
+		}
+	} else {
+		// BACK option
+		m.app.menuState = m.app.previousMenuState
+		m.app.selectedItem = 0
+		m.app.currentEditingAlarm = nil
+	}
+}
+
+// handleSourceTypeSelect handles selection in the source type selection menu
+func (m *Model) handleSourceTypeSelect() {
+	currentAlarm := m.app.currentEditingAlarm
+	if currentAlarm == nil {
+		return
+	}
+
+	sources := []config.AlarmSource{config.SourceBuzzer, config.SourceSoother, config.SourceMP3, config.SourceRadio}
+
+	if m.app.selectedItem < len(sources) {
+		// Set the source type
+		currentAlarm.Source = sources[m.app.selectedItem]
+		currentAlarm.AlarmSourceValue = "" // Reset value when changing type
+
+		// Automatically proceed to configuration
+		switch currentAlarm.Source {
+		case config.SourceBuzzer, config.SourceSoother:
+			m.app.menuState = StateSourceFileSelect
+			m.app.availableFiles = m.app.getAvailableFiles(currentAlarm.Source)
+			m.app.selectedFileIndex = 0
+		case config.SourceMP3, config.SourceRadio:
+			m.app.menuState = StateSourceStringInput
+			m.app.stringInput = ""
+			m.app.stringEditMode = true
+		}
+		m.app.selectedItem = 0
+	} else {
+		// BACK option
+		m.app.menuState = m.app.previousMenuState
+		m.app.selectedItem = 0
+	}
+}
+
+// handleSourceFileSelect handles selection in the file selection menu
+func (m *Model) handleSourceFileSelect() {
+	currentAlarm := m.app.currentEditingAlarm
+	if currentAlarm == nil {
+		return
+	}
+
+	if m.app.selectedItem < len(m.app.availableFiles) {
+		// File selection - set the selected file
+		selectedFile := m.app.availableFiles[m.app.selectedItem]
+		currentAlarm.AlarmSourceValue = selectedFile
+		m.app.selectedFileIndex = m.app.selectedItem
+
+		// Return to source edit menu
+		m.app.menuState = StateSourceEdit
+		m.app.selectedItem = 0
+		m.app.availableFiles = nil
+	} else {
+		// BACK option
+		m.app.menuState = StateSourceEdit
+		m.app.selectedItem = 0
+		m.app.availableFiles = nil
+	}
+}
+
+// handleSourceStringInputSelect handles selection in the string input menu
+func (m *Model) handleSourceStringInputSelect() {
+	currentAlarm := m.app.currentEditingAlarm
+	if currentAlarm == nil {
+		return
+	}
+
+	switch m.app.selectedItem {
+	case 0: // SAVE
+		if m.app.stringInput != "" {
+			currentAlarm.AlarmSourceValue = m.app.stringInput
+		}
+		m.app.menuState = StateSourceEdit
+		m.app.selectedItem = 0
+		m.app.stringInput = ""
+		m.app.stringEditMode = false
+	case 1: // BACK
+		m.app.menuState = StateSourceEdit
+		m.app.selectedItem = 0
+		m.app.stringInput = ""
+		m.app.stringEditMode = false
+	}
+}
+
+// handleDaysEditSelect handles selection in the days edit menu
+func (m *Model) handleDaysEditSelect() {
+	currentAlarm := m.app.currentEditingAlarm
+	if currentAlarm == nil {
+		return
+	}
+
+	if m.app.selectedItem < 7 {
+		// Toggle day selection
+		currentAlarm.Days[m.app.selectedItem] = !currentAlarm.Days[m.app.selectedItem]
+	} else {
+		// BACK option
+		m.app.menuState = m.app.previousMenuState
+		m.app.selectedItem = 0
+		m.app.currentEditingAlarm = nil
+	}
+}
+
+// handlePlayButton handles playing the currently selected file
+func (m *Model) handlePlayButton() {
+	if m.app.menuState != StateSourceFileSelect || m.app.currentEditingAlarm == nil {
+		return
+	}
+
+	if m.app.selectedItem < len(m.app.availableFiles) {
+		selectedFile := m.app.availableFiles[m.app.selectedItem]
+
+		// Create a temporary alarm config for preview
+		tempAlarm := *m.app.currentEditingAlarm
+		tempAlarm.AlarmSourceValue = selectedFile
+		tempAlarm.Volume = 30 // Lower volume for preview
+
+		// Stop any current playback and play the selected file
+		m.audioPlayer.Stop()
+		if err := m.audioPlayer.PlayAlarm(&tempAlarm); err != nil {
+			// Ignore errors for preview - files might not be compatible
+		}
+
+		// Stop after 2 seconds for preview
+		go func() {
+			time.Sleep(2 * time.Second)
+			m.audioPlayer.Stop()
+		}()
+	}
 }

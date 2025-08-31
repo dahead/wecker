@@ -26,7 +26,7 @@ type Alarm struct {
 	Days             []bool      `json:"days"` // 7 days, Sunday=0
 	Source           AlarmSource `json:"source"`
 	Volume           int         `json:"volume"`             // 1-100
-	AlarmSourceValue string      `json:"alarm_source_value"` // sound file (.tone) or .mp3 or .m3u
+	AlarmSourceValue string      `json:"alarm_source_value"` // file path for .tone/.mp3 files or directory/playlist path
 	VolumeRamp       bool        `json:"volume_ramp"`        // Progressive volume increase
 }
 

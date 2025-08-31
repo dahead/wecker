@@ -1,4 +1,4 @@
-package main
+package tone
 
 import (
 	"bufio"
@@ -150,18 +150,18 @@ type Command struct {
 	Wave     WaveType
 }
 
-func main() {
+func playToneFile(filename string) {
 	ctx, ready, err := oto.NewContext(44100, 1, 2)
 	if err != nil {
 		panic(err)
 	}
 	<-ready
 
-	fmt.Print("Pattern-Datei eingeben: ")
-	var filename string
-	fmt.Scanln(&filename)
+	//fmt.Print("Pattern-Datei eingeben: ")
+	//var filename string
+	//fmt.Scanln(&filename)
 
-	commands, err := parseFile(filename)
+	commands, err := parseToneFile(filename)
 	if err != nil {
 		fmt.Printf("Fehler: %v\n", err)
 		return
@@ -170,7 +170,7 @@ func main() {
 	executeCommands(ctx, commands)
 }
 
-func parseFile(filename string) ([]Command, error) {
+func parseToneFile(filename string) ([]Command, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -183,10 +183,10 @@ func parseFile(filename string) ([]Command, error) {
 		content.WriteString(scanner.Text() + " ")
 	}
 
-	return parseCommands(content.String())
+	return parseToneCommands(content.String())
 }
 
-func parseCommands(input string) ([]Command, error) {
+func parseToneCommands(input string) ([]Command, error) {
 	tokens := strings.Fields(input)
 	var commands []Command
 

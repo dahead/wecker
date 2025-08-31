@@ -2,9 +2,7 @@ package audio
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 	"wecker/config"
@@ -40,14 +38,23 @@ func (p *Player) PlayAlarm(alarm *config.Alarm) error {
 	var err error
 
 	switch alarm.Source {
-	case config.SourceBuzzer:
-		audioPath, err = p.getBuzzerPath(alarm.BuzzerType)
+	case config.SourceBuzzer, config.SourceSoother:
+		// For buzzer and soother, AlarmSourceValue contains the .tone file path
+		audioPath = alarm.AlarmSourceValue
+		if audioPath == "" {
+			// Default fallback
+			if alarm.Source == config.SourceBuzzer {
+				audioPath = "include/sounds/buzzer/pattern1.tone"
+			} else {
+				audioPath = "include/sounds/soother/noise1.tone"
+			}
+		}
 	case config.SourceMP3:
-		audioPath = alarm.MP3Directory
+		// For MP3, AlarmSourceValue contains directory path
+		audioPath = alarm.AlarmSourceValue
 	case config.SourceRadio:
-		audioPath = alarm.RadioURL
-	case config.SourceSoother:
-		audioPath, err = p.getSootherPath(alarm.SootherType)
+		// For radio, AlarmSourceValue contains URL or M3U playlist path
+		audioPath = alarm.AlarmSourceValue
 	default:
 		return fmt.Errorf("unknown alarm source: %s", alarm.Source)
 	}
@@ -76,11 +83,8 @@ func (p *Player) PlaySleepAudio() error {
 	} else if p.config.LastMP3Path != "" {
 		audioPath = p.config.LastMP3Path
 	} else {
-		var err error
-		audioPath, err = p.getSootherPath(p.config.LastSootherType)
-		if err != nil {
-			return fmt.Errorf("failed to get soother path: %v", err)
-		}
+		// Default to first soother file
+		audioPath = "include/sounds/soother/noise1.tone"
 	}
 
 	// Start playback with default volume
@@ -186,52 +190,6 @@ func (p *Player) IsPlaying() bool {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	return p.isPlaying
-}
-
-// getBuzzerPath returns the path to a buzzer sound file
-func (p *Player) getBuzzerPath(buzzerType int) (string, error) {
-	if buzzerType < 1 || buzzerType > 5 {
-		return "", fmt.Errorf("invalid buzzer type: %d (must be 1-5)", buzzerType)
-	}
-
-	buzzerFile := fmt.Sprintf("buzzer_%d.mp3", buzzerType)
-	buzzerPath := filepath.Join("include", "sounds", "buzzer", buzzerFile)
-
-	// Check if file exists
-	if _, err := os.Stat(buzzerPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("buzzer file not found: %s", buzzerPath)
-	}
-
-	// Return absolute path
-	absPath, err := filepath.Abs(buzzerPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path: %v", err)
-	}
-
-	return absPath, nil
-}
-
-// getSootherPath returns the path to a sound soother file
-func (p *Player) getSootherPath(sootherType int) (string, error) {
-	if sootherType < 1 || sootherType > 27 {
-		return "", fmt.Errorf("invalid soother type: %d (must be 1-27)", sootherType)
-	}
-
-	sootherFile := fmt.Sprintf("soother_%02d.mp3", sootherType)
-	sootherPath := filepath.Join("include", "sounds", "soother", sootherFile)
-
-	// Check if file exists
-	if _, err := os.Stat(sootherPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("soother file not found: %s", sootherPath)
-	}
-
-	// Return absolute path
-	absPath, err := filepath.Abs(sootherPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path: %v", err)
-	}
-
-	return absPath, nil
 }
 
 // UpdateConfig updates the configuration reference
