@@ -2,10 +2,14 @@ package audio
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 	"wecker/config"
+	"wecker/tone"
 )
 
 // Player manages audio playback
@@ -17,13 +21,47 @@ type Player struct {
 	currentVolume  int
 	volumeRamp     bool
 	startTime      time.Time
+	buzzerFiles    []string
+	sootherFiles   []string
 }
 
 // NewPlayer creates a new audio player
 func NewPlayer(cfg *config.Config) *Player {
-	return &Player{
+	p := &Player{
 		config: cfg,
 	}
+	p.discoverToneFiles()
+	return p
+}
+
+// discoverToneFiles finds all .tone files in buzzer and soother directories
+func (p *Player) discoverToneFiles() {
+	buzzerDir := "include/sounds/buzzer"
+	sootherDir := "include/sounds/soother"
+
+	p.buzzerFiles = findToneFiles(buzzerDir)
+	p.sootherFiles = findToneFiles(sootherDir)
+}
+
+// findToneFiles scans a directory for .tone files
+func findToneFiles(dir string) []string {
+	var files []string
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Continue even if there's an error
+		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".tone") {
+			files = append(files, path)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return []string{} // Return empty slice on error
+	}
+
+	return files
 }
 
 // PlayAlarm plays an alarm sound based on the alarm configuration
@@ -34,37 +72,76 @@ func (p *Player) PlayAlarm(alarm *config.Alarm) error {
 	// Stop any currently playing audio
 	p.stopInternal()
 
-	var audioPath string
-	var err error
-
 	switch alarm.Source {
-	case config.SourceBuzzer, config.SourceSoother:
-		// For buzzer and soother, AlarmSourceValue contains the .tone file path
-		audioPath = alarm.AlarmSourceValue
-		if audioPath == "" {
-			// Default fallback
-			if alarm.Source == config.SourceBuzzer {
-				audioPath = "include/sounds/buzzer/pattern1.tone"
+	case config.SourceBuzzer:
+		// Use ToneParser for buzzer sounds
+		var toneFile string
+		if alarm.AlarmSourceValue != "" {
+			toneFile = alarm.AlarmSourceValue
+		} else {
+			// Select from discovered files
+			if len(p.buzzerFiles) > 0 {
+				toneFile = p.buzzerFiles[0] // Use first available file
 			} else {
-				audioPath = "include/sounds/soother/noise1.tone"
+				return fmt.Errorf("no buzzer .tone files found")
 			}
 		}
+
+		p.isPlaying = true
+		p.currentVolume = alarm.Volume
+		p.startTime = time.Now()
+
+		// Play tone file in a goroutine to avoid blocking
+		go func() {
+			tone.PlayToneFile(toneFile)
+		}()
+
+		return nil
+
+	case config.SourceSoother:
+		// Use ToneParser for soother sounds
+		var toneFile string
+		if alarm.AlarmSourceValue != "" {
+			toneFile = alarm.AlarmSourceValue
+		} else {
+			// Select from discovered files
+			if len(p.sootherFiles) > 0 {
+				toneFile = p.sootherFiles[0] // Use first available file
+			} else {
+				return fmt.Errorf("no soother .tone files found")
+			}
+		}
+
+		p.isPlaying = true
+		p.currentVolume = alarm.Volume
+		p.startTime = time.Now()
+
+		// Play tone file in a goroutine to avoid blocking
+		go func() {
+			tone.PlayToneFile(toneFile)
+		}()
+
+		return nil
+
 	case config.SourceMP3:
-		// For MP3, AlarmSourceValue contains directory path
-		audioPath = alarm.AlarmSourceValue
+		// Use PlayerCommand for MP3
+		audioPath := alarm.AlarmSourceValue
+		if audioPath == "" {
+			audioPath = p.config.LastMP3Path
+		}
+		return p.startPlayback(audioPath, alarm.Volume, alarm.VolumeRamp)
+
 	case config.SourceRadio:
-		// For radio, AlarmSourceValue contains URL or M3U playlist path
-		audioPath = alarm.AlarmSourceValue
+		// Use PlayerCommand for radio
+		audioPath := alarm.AlarmSourceValue
+		if audioPath == "" {
+			audioPath = p.config.LastRadioURL
+		}
+		return p.startPlayback(audioPath, alarm.Volume, alarm.VolumeRamp)
+
 	default:
 		return fmt.Errorf("unknown alarm source: %s", alarm.Source)
 	}
-
-	if err != nil {
-		return fmt.Errorf("failed to get audio path: %v", err)
-	}
-
-	// Start playback
-	return p.startPlayback(audioPath, alarm.Volume, alarm.VolumeRamp)
 }
 
 // PlaySleepAudio plays audio for sleep timer (last used source)
@@ -75,20 +152,28 @@ func (p *Player) PlaySleepAudio() error {
 	// Stop any currently playing audio
 	p.stopInternal()
 
-	var audioPath string
-
 	// Use last played source (priority: radio > mp3 > soother)
 	if p.config.LastRadioURL != "" {
-		audioPath = p.config.LastRadioURL
+		return p.startPlayback(p.config.LastRadioURL, 50, false)
 	} else if p.config.LastMP3Path != "" {
-		audioPath = p.config.LastMP3Path
+		return p.startPlayback(p.config.LastMP3Path, 50, false)
 	} else {
-		// Default to first soother file
-		audioPath = "include/sounds/soother/noise1.tone"
-	}
+		// Default to first soother .tone file using ToneParser
+		if len(p.sootherFiles) > 0 {
+			p.isPlaying = true
+			p.currentVolume = 50
+			p.startTime = time.Now()
 
-	// Start playback with default volume
-	return p.startPlayback(audioPath, 50, false)
+			// Play tone file in a goroutine to avoid blocking
+			go func() {
+				tone.PlayToneFile(p.sootherFiles[0])
+			}()
+
+			return nil
+		} else {
+			return fmt.Errorf("no soother .tone files found")
+		}
+	}
 }
 
 // startPlayback starts audio playback with the specified parameters

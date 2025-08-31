@@ -150,7 +150,7 @@ type Command struct {
 	Wave     WaveType
 }
 
-func playToneFile(filename string) {
+func PlayToneFile(filename string) {
 	ctx, ready, err := oto.NewContext(44100, 1, 2)
 	if err != nil {
 		panic(err)
@@ -308,7 +308,7 @@ func parseBlock(tokens []string, start int) ([]Command, int, error) {
 	}
 
 	blockContent := strings.Join(tokens[start:end-1], " ")
-	blockCommands, err := parseCommands(blockContent)
+	blockCommands, err := parseToneCommands(blockContent)
 	if err != nil {
 		return nil, 0, err
 	}
