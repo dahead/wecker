@@ -173,9 +173,16 @@ func (p *Player) PlaySleepAudio() error {
 		p.currentVolume = sleepTimer.Volume
 		p.startTime = time.Now()
 
-		// Play tone file in a goroutine to avoid blocking
+		// Play tone file continuously in a goroutine for sleep timer
 		go func() {
-			tone.PlayToneFile(toneFile)
+			for p.isPlaying {
+				tone.PlayToneFile(toneFile)
+
+				// Small delay before repeating to avoid tight loop
+				if p.isPlaying {
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
 		}()
 
 		return nil

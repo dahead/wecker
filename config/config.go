@@ -32,8 +32,8 @@ type Alarm struct {
 
 // SleepTimer represents a sleep timer configuration
 type SleepTimer struct {
-	Enabled          bool        `json:"enabled"`
-	Duration         int         `json:"duration"`           // Duration in minutes: 15, 30, 45, 60, 90, 120
+	Enabled          bool        `json:"-"`                  // Not saved - always starts disabled
+	Duration         int         `json:"duration"`           // Duration in minutes: 5-120 (slider controlled)
 	Source           AlarmSource `json:"source"`             // Sound source: soother, mp3, radio
 	Volume           int         `json:"volume"`             // 1-100
 	AlarmSourceValue string      `json:"alarm_source_value"` // file path for .tone/.mp3 files or directory/playlist path
@@ -125,6 +125,9 @@ func Load() (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %v", err)
 	}
+
+	// Always start with sleep timer disabled, regardless of saved state
+	cfg.SleepTimer.Enabled = false
 
 	return &cfg, nil
 }

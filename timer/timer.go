@@ -97,16 +97,8 @@ func (m *Manager) checkTimers(now time.Time) {
 
 // StartSleepTimer starts a sleep timer with specified minutes
 func (m *Manager) StartSleepTimer(minutes int) bool {
-	validMinutes := []int{15, 30, 45, 60, 90, 120}
-	isValid := false
-	for _, valid := range validMinutes {
-		if minutes == valid {
-			isValid = true
-			break
-		}
-	}
-
-	if !isValid {
+	// Accept any value between 5-120 minutes for slider control
+	if minutes < 5 || minutes > 120 {
 		return false
 	}
 
