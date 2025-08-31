@@ -1,0 +1,7 @@
+repeat 8 {
+    parallel {
+        noise 800ms
+        sine 440 800ms
+    }
+    delay 400ms
+}

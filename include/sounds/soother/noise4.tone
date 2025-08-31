@@ -1,0 +1,8 @@
+repeat 30 {
+    noise 50ms
+    delay 100ms
+    noise 30ms
+    delay 200ms
+    noise 80ms
+    delay 150ms
+}

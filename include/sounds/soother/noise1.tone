@@ -1,0 +1,4 @@
+repeat 10 {
+    noise 500ms
+    delay 200ms
+}

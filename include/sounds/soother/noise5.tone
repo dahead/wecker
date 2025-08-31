@@ -1,0 +1,8 @@
+repeat 5 {
+    noise 300ms
+    square 200 200ms
+    noise 200ms
+    sawtooth 150 300ms
+    noise 400ms
+    delay 500ms
+}
