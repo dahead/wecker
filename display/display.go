@@ -322,8 +322,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.app.state = StateMainClock
 				m.app.selectedMenu = m.app.editingAlarm - 1
 			case StateSleepEdit:
-				// Start sleep timer when leaving settings if enabled
-				if m.app.config.SleepTimer.Enabled {
+				// Start sleep timer when leaving settings if duration > 0
+				if m.app.config.SleepTimer.Duration > 0 {
 					m.app.timerManager.StartSleepTimer(m.app.config.SleepTimer.Duration)
 				}
 				m.app.state = StateMainClock
@@ -333,8 +333,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.app.selectedMenu = 0
 				m.app.customPathInput = "" // Clear input on cancel
 			case StateSleepDuration, StateSleepVolume, StateSleepSoundSelect, StateSleepCustomPath:
-				// Start sleep timer when leaving duration settings if enabled
-				if m.app.state == StateSleepDuration && m.app.config.SleepTimer.Enabled {
+				// Start sleep timer when leaving duration settings if duration > 0
+				if m.app.state == StateSleepDuration && m.app.config.SleepTimer.Duration > 0 {
 					m.app.timerManager.StartSleepTimer(m.app.config.SleepTimer.Duration)
 				}
 				m.app.state = StateSleepEdit
@@ -560,9 +560,9 @@ func (m Model) renderAlarmStatus() string {
 		colorSleep = "#00FF00"
 		remaining := m.app.timerManager.GetTimeRemaining(timer.TypeSleep)
 		sleepText = fmt.Sprintf("%s SLEEP: %s", sleepIcon, timer.FormatTimeRemaining(remaining))
-	} else if m.app.config.SleepTimer.Enabled {
+	} else if m.app.config.SleepTimer.Duration > 0 {
 		sleepIcon = "🌙"
-		colorSleep = "#FFFF00" // Yellow for enabled but not running
+		colorSleep = "#FFFF00" // Yellow for ready but not running
 		sleepText = fmt.Sprintf("%s SLEEP: %dm [READY]", sleepIcon, m.app.config.SleepTimer.Duration)
 	} else {
 		sleepText = fmt.Sprintf("%s SLEEP: %dm [OFF]", sleepIcon, m.app.config.SleepTimer.Duration)
@@ -644,6 +644,10 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 				m.app.selectedMenu = 0
 			}
 		case 3: // Sleep Timer
+			// Stop any active sleep timer when entering the menu
+			if m.app.timerManager.IsTimerActive(timer.TypeSleep) {
+				m.app.timerManager.StopTimer(timer.TypeSleep)
+			}
 			m.app.state = StateSleepEdit
 			m.app.selectedMenu = 0
 		}
@@ -733,22 +737,19 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		}
 	case StateSleepEdit:
 		sleepTimer := &m.app.config.SleepTimer
-		maxOptions := 4 // Enabled, Duration, Volume, Source
+		maxOptions := 3 // Duration, Volume, Source
 		if sleepTimer.Source == config.SourceSoother {
-			maxOptions = 5 // Add Sound selection
+			maxOptions = 4 // Add Sound selection
 		} else if sleepTimer.Source == config.SourceMP3 || sleepTimer.Source == config.SourceRadio {
-			maxOptions = 5 // Add Custom path
+			maxOptions = 4 // Add Custom path
 		}
 
 		switch m.app.selectedMenu {
-		case 0: // Toggle enabled
-			sleepTimer.Enabled = !sleepTimer.Enabled
-			m.app.config.Save()
-		case 1: // Edit duration with slider
+		case 0: // Edit duration with slider
 			m.app.state = StateSleepDuration
-		case 2: // Volume
+		case 1: // Volume
 			m.app.state = StateSleepVolume
-		case 3: // Change source
+		case 2: // Change source
 			sources := []config.AlarmSource{config.SourceSoother, config.SourceMP3, config.SourceRadio}
 			currentIndex := 0
 			for i, source := range sources {
@@ -761,7 +762,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			// Reset source value when changing source
 			sleepTimer.AlarmSourceValue = ""
 			m.app.config.Save()
-		case 4: // Source-specific options
+		case 3: // Source-specific options
 			if sleepTimer.Source == config.SourceSoother {
 				m.app.state = StateSleepSoundSelect
 				m.app.selectedMenu = 0
@@ -971,17 +972,10 @@ func (m Model) handleLeft() (tea.Model, tea.Cmd) {
 	case StateSleepDuration:
 		// Decrease sleep timer duration
 		sleepTimer := &m.app.config.SleepTimer
-		if sleepTimer.Duration > 5 {
+		if sleepTimer.Duration > 0 {
 			sleepTimer.Duration -= 5
-			if sleepTimer.Duration < 5 {
-				sleepTimer.Duration = 5
-			}
-			// Auto-enable when duration > 0, but don't start timer yet
-			if sleepTimer.Duration > 0 {
-				sleepTimer.Enabled = true
-			} else {
-				sleepTimer.Enabled = false
-				m.app.timerManager.StopTimer(timer.TypeSleep)
+			if sleepTimer.Duration < 0 {
+				sleepTimer.Duration = 0
 			}
 			m.app.config.Save()
 		}
@@ -1027,13 +1021,6 @@ func (m Model) handleRight() (tea.Model, tea.Cmd) {
 			sleepTimer.Duration += 5
 			if sleepTimer.Duration > 120 {
 				sleepTimer.Duration = 120
-			}
-			// Auto-enable when duration > 0, but don't start timer yet
-			if sleepTimer.Duration > 0 {
-				sleepTimer.Enabled = true
-			} else {
-				sleepTimer.Enabled = false
-				m.app.timerManager.StopTimer(timer.TypeSleep)
 			}
 			m.app.config.Save()
 		}
@@ -1233,7 +1220,6 @@ func (m Model) renderSleepEdit() string {
 	sleepTimer := &m.app.config.SleepTimer
 
 	menuOptions := []string{
-		fmt.Sprintf("Enabled: %s", getBoolText(sleepTimer.Enabled)),
 		fmt.Sprintf("Duration: %d minutes", sleepTimer.Duration),
 		fmt.Sprintf("Volume: %d%%", sleepTimer.Volume),
 		fmt.Sprintf("Source: %s", sleepTimer.Source),

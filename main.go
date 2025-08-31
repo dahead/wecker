@@ -56,10 +56,9 @@ func main() {
 	// Set up callbacks for timer events
 	timerManager.SetCallbacks(timer.TimerCallbacks{
 		OnSleepTimerExpired: func() {
-			log.Println("Sleep timer expired, stopping audio and resetting timer")
+			log.Println("Sleep timer expired, stopping audio")
 			audioPlayer.Stop()
-			// Reset sleep timer to disabled state as required
-			cfg.SleepTimer.Enabled = false
+			// Sleep timer automatically stops when expired - no manual reset needed
 		},
 		OnSnoozeTimerExpired: func() {
 			log.Println("Snooze timer expired")

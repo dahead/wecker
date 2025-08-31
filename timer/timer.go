@@ -97,7 +97,12 @@ func (m *Manager) checkTimers(now time.Time) {
 
 // StartSleepTimer starts a sleep timer with specified minutes
 func (m *Manager) StartSleepTimer(minutes int) bool {
-	// Accept any value between 5-120 minutes for slider control
+	// Accept 0 to disable, or 5-120 minutes for active timer
+	if minutes == 0 {
+		// Stop any active sleep timer when set to 0
+		return m.StopTimer(TypeSleep)
+	}
+
 	if minutes < 5 || minutes > 120 {
 		return false
 	}

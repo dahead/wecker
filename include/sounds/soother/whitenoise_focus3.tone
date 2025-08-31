@@ -1,0 +1,19 @@
+repeat 25 {
+    noise 3000ms
+    delay 200ms
+    parallel {
+        noise 2000ms
+        sine 100 2000ms
+    }
+    delay 400ms
+    noise 4000ms
+    delay 600ms
+    parallel {
+        noise 1500ms
+        sine 70 1500ms
+        sine 140 1500ms
+    }
+    delay 800ms
+    noise 6000ms
+    delay 1500ms
+}

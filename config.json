@@ -44,7 +44,7 @@
     "duration": 10,
     "source": "soother",
     "volume": 60,
-    "alarm_source_value": "include/sounds/soother/noise2.tone"
+    "alarm_source_value": "include/sounds/soother/whitenoise_focus3.tone"
   },
   "snooze_minutes": 10,
   "player_command": "mpv",
