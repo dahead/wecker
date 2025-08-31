@@ -573,7 +573,7 @@ func (app *App) getStatusText() string {
 // generateASCIIClock creates ASCII art for the current time using go-figure
 func (app *App) generateASCIIClock(timeStr string) string {
 	// Use go-figure to render the time string as ASCII art
-	ascii := figure.NewFigure(timeStr, "", true)
+	ascii := figure.NewFigure(timeStr, "doom", true)
 	return ascii.String()
 }
 
