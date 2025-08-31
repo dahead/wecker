@@ -1,3 +1,11 @@
+When snoozing, stop the playing alarm.
+
+
+
+
+
+
+
 saving the alarm settings does not work.
 
 selection menu is very complicated with up/down, also screen does not repaint arrows correct. you still dont use colors every where to make the app look modern / hacker style.

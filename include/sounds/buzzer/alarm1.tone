@@ -1,0 +1,12 @@
+repeat 5 {
+    sine NOTE_A5 300ms
+    delay 200ms
+}
+repeat 5 {
+    sine NOTE_A5 300ms
+    delay 100ms
+}
+repeat 10 {
+    sine NOTE_A5 200ms
+    delay 50ms
+}

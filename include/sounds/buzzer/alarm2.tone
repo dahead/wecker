@@ -1,0 +1,4 @@
+repeat 15 {
+    sine NOTE_A4 400ms
+    sine NOTE_A5 400ms
+}

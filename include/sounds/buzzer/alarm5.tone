@@ -1,0 +1,14 @@
+repeat 10 {
+    parallel {
+        sine NOTE_C5 600ms
+        sine NOTE_E5 600ms
+        sine NOTE_G5 600ms
+    }
+    delay 400ms
+    parallel {
+        sine NOTE_F5 600ms
+        sine NOTE_A5 600ms
+        sine NOTE_C6 600ms
+    }
+    delay 400ms
+}

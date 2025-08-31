@@ -141,26 +141,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle active alarms - stop on any key press, but check for SNOOZE first
+		// Handle active alarms - snooze with S or SPACE
 		activeAlarms := m.app.alarmManager.GetActiveAlarms()
 		if len(activeAlarms) > 0 && m.app.state == StateMainClock {
-			// Special handling for ENTER key when SNOOZE is selected
-			if msg.String() == "enter" && m.app.selectedMenu == 0 {
-				// SNOOZE is at index 0 when alarms are active - activate snooze
+			// Handle snooze with S or SPACE keys
+			if msg.String() == "s" || msg.String() == " " {
 				for alarmID := range activeAlarms {
 					m.app.alarmManager.SnoozeAlarm(alarmID)
-				}
-				return m, nil
-			} else if msg.String() == "enter" && m.app.selectedMenu == 1 {
-				// STOP is at index 1 when alarms are active - stop alarms
-				for alarmID := range activeAlarms {
-					m.app.alarmManager.StopAlarm(alarmID)
-				}
-				return m, nil
-			} else if msg.String() != "left" && msg.String() != "right" && msg.String() != "h" && msg.String() != "l" {
-				// Stop alarms on any other key press (except navigation)
-				for alarmID := range activeAlarms {
-					m.app.alarmManager.StopAlarm(alarmID)
 				}
 				return m, nil
 			}
@@ -227,7 +214,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Simple time editing - press T to enter time input
 			if m.app.state == StateAlarmEdit {
 				m.app.state = StateTimeInput
-				m.app.timeInput = ""
+				// Pre-fill with current alarm time
+				var alarm *config.Alarm
+				if m.app.editingAlarm == 1 {
+					alarm = &m.app.config.Alarm1
+				} else {
+					alarm = &m.app.config.Alarm2
+				}
+				// Extract HH:MM from the time string (remove seconds if present)
+				m.app.timeInput = alarm.Time[:5]
 			}
 
 		case "e":
@@ -328,74 +323,65 @@ func (m Model) renderAlarmStatus() string {
 
 	// Check for active alarms
 	activeAlarms := m.app.alarmManager.GetActiveAlarms()
-	hasActiveAlarms := len(activeAlarms) > 0
 
-	// If alarms are active, show SNOOZE instead of regular alarm status
-	if hasActiveAlarms {
-		snoozeText := "🔴 SNOOZE"
-		status.WriteString(lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000")).
-			Background(lipgloss.Color("#FFFF00")).
-			Bold(true).
-			Padding(0, 2).
-			Render(snoozeText))
+	// Regular alarm status display (enhanced to show active alarms)
+	// Alarm 1 status
+	alarm1Icon := "⏰"
+	color1 := "#666666"
+	_, isAlarm1Active := activeAlarms[1]
 
-		status.WriteString("    ")
-
-		// Show which alarms are active
-		var activeAlarmTexts []string
-		for alarmID := range activeAlarms {
-			activeAlarmTexts = append(activeAlarmTexts, fmt.Sprintf("ALARM %d ACTIVE", alarmID))
-		}
-		activeText := strings.Join(activeAlarmTexts, " • ")
-		status.WriteString(lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000")).
-			Bold(true).
-			Render(activeText))
-	} else {
-		// Regular alarm status display when no alarms are active
-		// Alarm 1 status
-		alarm1Icon := "⏰"
-		color1 := "#666666"
-		if m.app.config.Alarm1.Enabled {
-			alarm1Icon = "🔔"
-			color1 = "#00FF00"
-		}
-
-		alarm1Text := fmt.Sprintf("%s ALARM 1: %s", alarm1Icon, m.app.config.Alarm1.Time[:5])
-		if m.app.config.Alarm1.Enabled {
-			activeDays := m.getActiveDaysString(m.app.config.Alarm1.Days)
-			alarm1Text += fmt.Sprintf(" [%s]", activeDays)
-		} else {
-			alarm1Text += " [OFF]"
-		}
-
-		status.WriteString(lipgloss.NewStyle().
-			Foreground(lipgloss.Color(color1)).
-			Render(alarm1Text))
-
-		status.WriteString("    ")
-
-		// Alarm 2 status
-		alarm2Icon := "⏰"
-		color2 := "#666666"
-		if m.app.config.Alarm2.Enabled {
-			alarm2Icon = "🔔"
-			color2 = "#00FF00"
-		}
-
-		alarm2Text := fmt.Sprintf("%s ALARM 2: %s", alarm2Icon, m.app.config.Alarm2.Time[:5])
-		if m.app.config.Alarm2.Enabled {
-			activeDays := m.getActiveDaysString(m.app.config.Alarm2.Days)
-			alarm2Text += fmt.Sprintf(" [%s]", activeDays)
-		} else {
-			alarm2Text += " [OFF]"
-		}
-
-		status.WriteString(lipgloss.NewStyle().
-			Foreground(lipgloss.Color(color2)).
-			Render(alarm2Text))
+	if isAlarm1Active {
+		alarm1Icon = "🔴"
+		color1 = "#FF0000"
+	} else if m.app.config.Alarm1.Enabled {
+		alarm1Icon = "🔔"
+		color1 = "#00FF00"
 	}
+
+	alarm1Text := fmt.Sprintf("%s ALARM 1: %s", alarm1Icon, m.app.config.Alarm1.Time[:5])
+	if isAlarm1Active {
+		alarm1Text += " [ACTIVE]"
+	} else if m.app.config.Alarm1.Enabled {
+		activeDays := m.getActiveDaysString(m.app.config.Alarm1.Days)
+		alarm1Text += fmt.Sprintf(" [%s]", activeDays)
+	} else {
+		alarm1Text += " [OFF]"
+	}
+
+	status.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color(color1)).
+		Bold(isAlarm1Active).
+		Render(alarm1Text))
+
+	status.WriteString("    ")
+
+	// Alarm 2 status
+	alarm2Icon := "⏰"
+	color2 := "#666666"
+	_, isAlarm2Active := activeAlarms[2]
+
+	if isAlarm2Active {
+		alarm2Icon = "🔴"
+		color2 = "#FF0000"
+	} else if m.app.config.Alarm2.Enabled {
+		alarm2Icon = "🔔"
+		color2 = "#00FF00"
+	}
+
+	alarm2Text := fmt.Sprintf("%s ALARM 2: %s", alarm2Icon, m.app.config.Alarm2.Time[:5])
+	if isAlarm2Active {
+		alarm2Text += " [ACTIVE]"
+	} else if m.app.config.Alarm2.Enabled {
+		activeDays := m.getActiveDaysString(m.app.config.Alarm2.Days)
+		alarm2Text += fmt.Sprintf(" [%s]", activeDays)
+	} else {
+		alarm2Text += " [OFF]"
+	}
+
+	status.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color(color2)).
+		Bold(isAlarm2Active).
+		Render(alarm2Text))
 
 	status.WriteString("    ")
 
@@ -446,34 +432,15 @@ func (m Model) getActiveDaysString(days []bool) string {
 
 // Render simple bottom menu (no complex arrows or styles)
 func (m Model) renderBottomMenu() string {
-	// Check for active alarms
-	activeAlarms := m.app.alarmManager.GetActiveAlarms()
-	hasActiveAlarms := len(activeAlarms) > 0
-
-	var menuItems []string
-	if hasActiveAlarms {
-		// When alarms are active, show SNOOZE as the primary option
-		menuItems = []string{"SNOOZE", "STOP", "SETTINGS", "SLEEP"}
-	} else {
-		// Normal menu when no alarms are active
-		menuItems = []string{"SETTINGS", "ALARM 1", "ALARM 2", "SLEEP"}
-	}
+	// Always show normal menu, even when alarms are active
+	menuItems := []string{"SETTINGS", "ALARM 1", "ALARM 2", "SLEEP"}
 
 	var rendered []string
 
 	for i, item := range menuItems {
 		style := m.app.menuStyle
 		if i == m.app.selectedMenu && m.app.state == StateMainClock {
-			if hasActiveAlarms && item == "SNOOZE" {
-				// Special highlighting for SNOOZE button
-				style = lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#000000")).
-					Background(lipgloss.Color("#FFFF00")).
-					Padding(0, 1).
-					Bold(true)
-			} else {
-				style = m.app.selectedStyle
-			}
+			style = m.app.selectedStyle
 		}
 		rendered = append(rendered, style.Render(fmt.Sprintf(" %s ", item)))
 	}
@@ -487,18 +454,31 @@ func (m Model) renderBottomMenu() string {
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	switch m.app.state {
 	case StateMainClock:
+		// Check if any alarms are active and handle stopping them
+		activeAlarms := m.app.alarmManager.GetActiveAlarms()
+
 		switch m.app.selectedMenu {
 		case 0: // Settings
 			m.app.state = StateSettings
 			m.app.selectedMenu = 0
 		case 1: // Alarm 1
-			m.app.state = StateAlarmEdit
-			m.app.editingAlarm = 1
-			m.app.selectedMenu = 0
+			// If Alarm 1 is active, stop it; otherwise go to edit screen
+			if _, isActive := activeAlarms[1]; isActive {
+				m.app.alarmManager.StopAlarm(1)
+			} else {
+				m.app.state = StateAlarmEdit
+				m.app.editingAlarm = 1
+				m.app.selectedMenu = 0
+			}
 		case 2: // Alarm 2
-			m.app.state = StateAlarmEdit
-			m.app.editingAlarm = 2
-			m.app.selectedMenu = 0
+			// If Alarm 2 is active, stop it; otherwise go to edit screen
+			if _, isActive := activeAlarms[2]; isActive {
+				m.app.alarmManager.StopAlarm(2)
+			} else {
+				m.app.state = StateAlarmEdit
+				m.app.editingAlarm = 2
+				m.app.selectedMenu = 0
+			}
 		case 3: // Sleep Timer
 			m.app.state = StateSleepEdit
 			m.app.selectedMenu = 0
@@ -546,7 +526,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			m.app.config.Save()
 		case 1: // Edit time
 			m.app.state = StateTimeInput
-			m.app.timeInput = ""
+			// Pre-fill with current alarm time
+			// Extract HH:MM from the time string (remove seconds if present)
+			m.app.timeInput = alarm.Time[:5]
 		case 2: // Edit days
 			m.app.state = StateAlarmDays
 			m.app.selectedMenu = 0
@@ -1413,6 +1395,14 @@ func getBoolText(value bool) string {
 // GetProgram returns the tea program for compatibility
 func (app *App) GetProgram() *tea.Program {
 	return app.program
+}
+
+// SetFocus sets the focus to the specified alarm when it becomes active
+func (app *App) SetFocus(alarmID int) {
+	if app.state == StateMainClock {
+		// Set selectedMenu to the alarm button (ALARM 1 = index 1, ALARM 2 = index 2)
+		app.selectedMenu = alarmID
+	}
 }
 
 // discoverToneFiles scans for available .tone files in the buzzer directory

@@ -1,0 +1,18 @@
+sine 1000 150ms
+delay 5000ms
+sine 1000 150ms
+delay 4000ms
+sine 1000 150ms
+delay 3000ms
+repeat 3 {
+    sine 1000 150ms
+    delay 2000ms
+}
+repeat 5 {
+    sine 1000 200ms
+    delay 1000ms
+}
+repeat 15 {
+    sine 1000 250ms
+    delay 400ms
+}

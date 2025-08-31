@@ -1,0 +1,9 @@
+repeat 8 {
+    sine NOTE_C5 250ms
+    sine NOTE_D5 250ms
+    sine NOTE_E5 250ms
+    sine NOTE_F5 250ms
+    sine NOTE_G5 250ms
+    sine NOTE_A5 250ms
+    delay 300ms
+}

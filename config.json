@@ -25,7 +25,7 @@
   "alarm2": {
     "id": 2,
     "enabled": true,
-    "time": "22:39:00",
+    "time": "23:06:00",
     "days": [
       true,
       true,
@@ -37,13 +37,13 @@
     ],
     "source": "buzzer",
     "volume": 70,
-    "alarm_source_value": "include/sounds/buzzer/pattern5.tone",
+    "alarm_source_value": "include/sounds/buzzer/braun_gentle.tone",
     "volume_ramp": true
   },
   "sleep_timer": {
     "duration": 5,
     "source": "soother",
-    "volume": 100,
+    "volume": 50,
     "alarm_source_value": "include/sounds/soother/noise5.tone"
   },
   "snooze_minutes": 10,

@@ -1,0 +1,8 @@
+repeat 12 {
+    sine NOTE_E5 150ms
+    delay 100ms
+    sine NOTE_E5 150ms
+    delay 100ms
+    sine NOTE_E5 150ms
+    delay 800ms
+}

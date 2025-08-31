@@ -29,6 +29,9 @@ func main() {
 	// Set up callbacks for alarm events
 	alarmManager.SetCallbacks(alarm.AlarmCallbacks{
 		OnAlarmTriggered: func(alarmID int, alarmCfg *config.Alarm) {
+			// Set focus to the triggered alarm
+			displayApp.SetFocus(alarmID)
+
 			// Play alarm sound
 			if err := audioPlayer.PlayAlarm(alarmCfg); err != nil {
 				log.Printf("Failed to play alarm %d: %v", alarmID, err)
