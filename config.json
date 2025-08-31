@@ -37,8 +37,12 @@
     ],
     "source": "buzzer",
     "volume": 50,
-    "alarm_source_value": "",
+    "alarm_source_value": "include/sounds/buzzer/pattern5.tone",
     "volume_ramp": true
+  },
+  "sleep_timer": {
+    "enabled": true,
+    "duration": 15
   },
   "snooze_minutes": 10,
   "sleep_minutes": 60,

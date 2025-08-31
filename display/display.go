@@ -23,6 +23,7 @@ const (
 	StateMainClock AppState = iota
 	StateSettings
 	StateAlarmEdit
+	StateSleepEdit
 	StateTimeInput
 	StateAlarmDays
 	StateAlarmSource
@@ -145,6 +146,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case StateAlarmEdit:
 				m.app.state = StateMainClock
 				m.app.selectedMenu = m.app.editingAlarm - 1
+			case StateSleepEdit:
+				m.app.state = StateMainClock
+				m.app.selectedMenu = 3 // Sleep menu index
 			case StateTimeInput, StateAlarmDays, StateAlarmVolume, StateAlarmToneSelect, StateAlarmCustomPath:
 				m.app.state = StateAlarmEdit
 				m.app.selectedMenu = 0
@@ -211,6 +215,8 @@ func (m Model) View() string {
 		return m.renderSettings()
 	case StateAlarmEdit:
 		return m.renderAlarmEdit()
+	case StateSleepEdit:
+		return m.renderSleepEdit()
 	case StateTimeInput:
 		return m.renderTimeInput()
 	case StateAlarmDays:
@@ -306,6 +312,24 @@ func (m Model) renderAlarmStatus() string {
 		Foreground(lipgloss.Color(color2)).
 		Render(alarm2Text))
 
+	status.WriteString("    ")
+
+	// Sleep Timer status
+	sleepIcon := "😴"
+	colorSleep := "#666666"
+	var sleepText string
+	if m.app.config.SleepTimer.Enabled {
+		sleepIcon = "🌙"
+		colorSleep = "#00FF00"
+		sleepText = fmt.Sprintf("%s SLEEP: %dm [ON]", sleepIcon, m.app.config.SleepTimer.Duration)
+	} else {
+		sleepText = fmt.Sprintf("%s SLEEP: %dm [OFF]", sleepIcon, m.app.config.SleepTimer.Duration)
+	}
+
+	status.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colorSleep)).
+		Render(sleepText))
+
 	return lipgloss.NewStyle().
 		Align(lipgloss.Center).
 		Render(status.String())
@@ -330,7 +354,7 @@ func (m Model) getActiveDaysString(days []bool) string {
 
 // Render simple bottom menu (no complex arrows or styles)
 func (m Model) renderBottomMenu() string {
-	menuItems := []string{"SETTINGS", "ALARM 1", "ALARM 2"}
+	menuItems := []string{"SETTINGS", "ALARM 1", "ALARM 2", "SLEEP"}
 	var rendered []string
 
 	for i, item := range menuItems {
@@ -361,6 +385,9 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		case 2: // Alarm 2
 			m.app.state = StateAlarmEdit
 			m.app.editingAlarm = 2
+			m.app.selectedMenu = 0
+		case 3: // Sleep Timer
+			m.app.state = StateSleepEdit
 			m.app.selectedMenu = 0
 		}
 	case StateSettings:
@@ -439,6 +466,32 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 				m.app.selectedMenu = m.app.editingAlarm - 1
 			}
 		}
+	case StateSleepEdit:
+		switch m.app.selectedMenu {
+		case 0: // Toggle enabled
+			m.app.config.SleepTimer.Enabled = !m.app.config.SleepTimer.Enabled
+			m.app.config.Save()
+			// Start or stop the sleep timer based on enabled state
+			if m.app.config.SleepTimer.Enabled {
+				m.app.timerManager.StartSleepTimer(m.app.config.SleepTimer.Duration)
+			} else {
+				m.app.timerManager.StopTimer(timer.TypeSleep)
+			}
+		case 1: // Change duration
+			validDurations := []int{15, 30, 45, 60, 90, 120}
+			currentIndex := 0
+			for i, duration := range validDurations {
+				if duration == m.app.config.SleepTimer.Duration {
+					currentIndex = i
+					break
+				}
+			}
+			m.app.config.SleepTimer.Duration = validDurations[(currentIndex+1)%len(validDurations)]
+			m.app.config.Save()
+		case 2: // Back
+			m.app.state = StateMainClock
+			m.app.selectedMenu = 3 // Sleep menu index
+		}
 	case StateTimeInput:
 		// Process time input and save - ENTER leaves time set menu as requested
 		if m.parseAndSetTime() {
@@ -502,6 +555,10 @@ func (m Model) handleUp() (tea.Model, tea.Cmd) {
 		if m.app.selectedMenu > 0 {
 			m.app.selectedMenu--
 		}
+	case StateSleepEdit:
+		if m.app.selectedMenu > 0 {
+			m.app.selectedMenu--
+		}
 	case StateAlarmDays:
 		if m.app.selectedMenu > 0 {
 			m.app.selectedMenu--
@@ -539,6 +596,11 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 		}
 
 		if m.app.selectedMenu < maxOptions-1 {
+			m.app.selectedMenu++
+		}
+	case StateSleepEdit:
+		maxItems := 3 // Enabled, Duration, Back
+		if m.app.selectedMenu < maxItems-1 {
 			m.app.selectedMenu++
 		}
 	case StateAlarmDays:
@@ -581,7 +643,7 @@ func (m Model) handleLeft() (tea.Model, tea.Cmd) {
 func (m Model) handleRight() (tea.Model, tea.Cmd) {
 	switch m.app.state {
 	case StateMainClock:
-		if m.app.selectedMenu < 2 {
+		if m.app.selectedMenu < 3 {
 			m.app.selectedMenu++
 		}
 	case StateAlarmVolume:
@@ -756,6 +818,35 @@ func (m Model) renderAlarmEdit() string {
 	}
 
 	menuOptions = append(menuOptions, "Back")
+
+	for i, option := range menuOptions {
+		if i == m.app.selectedMenu {
+			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s ", option)))
+		} else {
+			content.WriteString(fmt.Sprintf("   %s", option))
+		}
+		content.WriteString("\n")
+	}
+
+	content.WriteString("\n")
+	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  ENTER to edit  •  ESC to return"))
+
+	return content.String()
+}
+
+// Render sleep timer edit menu
+func (m Model) renderSleepEdit() string {
+	var content strings.Builder
+
+	title := "🌙 SLEEP TIMER CONFIGURATION"
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+
+	menuOptions := []string{
+		fmt.Sprintf("Enabled: %s", getBoolText(m.app.config.SleepTimer.Enabled)),
+		fmt.Sprintf("Duration: %d minutes", m.app.config.SleepTimer.Duration),
+		"Back",
+	}
 
 	for i, option := range menuOptions {
 		if i == m.app.selectedMenu {

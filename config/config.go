@@ -30,6 +30,12 @@ type Alarm struct {
 	VolumeRamp       bool        `json:"volume_ramp"`        // Progressive volume increase
 }
 
+// SleepTimer represents a sleep timer configuration
+type SleepTimer struct {
+	Enabled  bool `json:"enabled"`
+	Duration int  `json:"duration"` // Duration in minutes: 15, 30, 45, 60, 90, 120
+}
+
 // Config represents the application configuration
 type Config struct {
 	// Display settings
@@ -43,9 +49,12 @@ type Config struct {
 	Alarm1 Alarm `json:"alarm1"`
 	Alarm2 Alarm `json:"alarm2"`
 
+	// Sleep Timer
+	SleepTimer SleepTimer `json:"sleep_timer"`
+
 	// Timers
 	SnoozeMinutes int `json:"snooze_minutes"` // 5, 10, 15, 30
-	SleepMinutes  int `json:"sleep_minutes"`  // 15, 30, 45, 60, 90, 120
+	SleepMinutes  int `json:"sleep_minutes"`  // 15, 30, 45, 60, 90, 120 - DEPRECATED, use SleepTimer.Duration
 
 	// Audio settings
 	PlayerCommand string `json:"player_command"` // e.g., "mpv"
@@ -78,6 +87,10 @@ func DefaultConfig() *Config {
 			Source:     SourceBuzzer,
 			Volume:     50,
 			VolumeRamp: true,
+		},
+		SleepTimer: SleepTimer{
+			Enabled:  false,
+			Duration: 60, // Default 60 minutes
 		},
 		SnoozeMinutes: 5,
 		SleepMinutes:  60,
