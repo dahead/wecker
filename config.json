@@ -1,7 +1,7 @@
 {
   "hour_24_format": true,
   "show_seconds": false,
-  "font_name": "ogre",
+  "font_name": "slant",
   "brightness": 6,
   "backlight": 5,
   "alarm1": {
@@ -19,7 +19,7 @@
     ],
     "source": "buzzer",
     "volume": 50,
-    "alarm_source_value": "include/sounds/buzzer/pattern5.tone",
+    "alarm_source_value": "include/sounds/buzzer/pattern1.tone",
     "volume_ramp": true
   },
   "alarm2": {
@@ -44,7 +44,7 @@
     "duration": 10,
     "source": "soother",
     "volume": 60,
-    "alarm_source_value": "include/sounds/soother/noise5.tone"
+    "alarm_source_value": "include/sounds/soother/noise2.tone"
   },
   "snooze_minutes": 10,
   "player_command": "mpv",

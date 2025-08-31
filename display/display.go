@@ -897,7 +897,7 @@ func (m Model) handleDown() (tea.Model, tea.Cmd) {
 	case StateMainClock:
 		// No up/down navigation on main clock
 	case StateSettings:
-		maxItems := 4 // Font, 24H, Seconds, Back
+		maxItems := 6 // Font, 24H, Seconds, Buzzer Dir, Soother Dir, Back
 		if m.app.selectedMenu < maxItems-1 {
 			m.app.selectedMenu++
 		}
@@ -1181,7 +1181,6 @@ func (m Model) renderAlarmEdit() string {
 		fmt.Sprintf("Time: %s", alarm.Time[:5]),
 		fmt.Sprintf("Days: %s", m.getActiveDaysString(alarm.Days)),
 		fmt.Sprintf("Volume: %d%%", alarm.Volume),
-		fmt.Sprintf("Volume Ramp: %s", getBoolText(alarm.VolumeRamp)),
 		fmt.Sprintf("Source: %s", alarm.Source),
 	}
 
