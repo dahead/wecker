@@ -2,16 +2,19 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/oto/v2"
 )
 
-// Alle Note-Konstanten
 const (
 	NOTE_B0  = 31
 	NOTE_C1  = 33
@@ -130,12 +133,21 @@ var noteMap = map[string]float64{
 	"NOTE_DS8": NOTE_DS8,
 }
 
+type WaveType int
+
+const (
+	Sine WaveType = iota
+	Square
+	Sawtooth
+)
+
 type Command struct {
 	Type     string
 	Freq     float64
 	Duration time.Duration
 	Count    int
 	Commands []Command
+	Wave     WaveType
 }
 
 func main() {
@@ -182,7 +194,7 @@ func parseCommands(input string) ([]Command, error) {
 		switch tokens[i] {
 		case "tone":
 			if i+2 >= len(tokens) {
-				return nil, fmt.Errorf("tone needs 2 parameters")
+				return nil, fmt.Errorf("tone braucht 2 Parameter")
 			}
 			freq, err := parseFreq(tokens[i+1])
 			if err != nil {
@@ -192,12 +204,47 @@ func parseCommands(input string) ([]Command, error) {
 			if err != nil {
 				return nil, err
 			}
-			commands = append(commands, Command{Type: "tone", Freq: freq, Duration: duration})
+			commands = append(commands, Command{Type: "tone", Freq: freq, Duration: duration, Wave: Sine})
 			i += 3
+
+		case "sine", "square", "sawtooth":
+			if i+2 >= len(tokens) {
+				return nil, fmt.Errorf("%s braucht 2 Parameter", tokens[i])
+			}
+			freq, err := parseFreq(tokens[i+1])
+			if err != nil {
+				return nil, err
+			}
+			duration, err := parseDuration(tokens[i+2])
+			if err != nil {
+				return nil, err
+			}
+			var wave WaveType
+			switch tokens[i] {
+			case "sine":
+				wave = Sine
+			case "square":
+				wave = Square
+			case "sawtooth":
+				wave = Sawtooth
+			}
+			commands = append(commands, Command{Type: "wave", Freq: freq, Duration: duration, Wave: wave})
+			i += 3
+
+		case "noise":
+			if i+1 >= len(tokens) {
+				return nil, fmt.Errorf("noise braucht 1 Parameter")
+			}
+			duration, err := parseDuration(tokens[i+1])
+			if err != nil {
+				return nil, err
+			}
+			commands = append(commands, Command{Type: "noise", Duration: duration})
+			i += 2
 
 		case "delay":
 			if i+1 >= len(tokens) {
-				return nil, fmt.Errorf("delay needs 1 parameter")
+				return nil, fmt.Errorf("delay braucht 1 Parameter")
 			}
 			duration, err := parseDuration(tokens[i+1])
 			if err != nil {
@@ -206,40 +253,35 @@ func parseCommands(input string) ([]Command, error) {
 			commands = append(commands, Command{Type: "delay", Duration: duration})
 			i += 2
 
-		case "loop":
+		case "loop", "repeat":
 			if i+2 >= len(tokens) || tokens[i+2] != "{" {
-				return nil, fmt.Errorf("loop syntax: loop COUNT { ... }")
+				return nil, fmt.Errorf("%s syntax: %s COUNT { ... }", tokens[i], tokens[i])
 			}
 			count, err := strconv.Atoi(tokens[i+1])
 			if err != nil {
 				return nil, err
 			}
 
-			// Finde schließende Klammer
-			braceCount := 1
-			start := i + 3
-			end := start
-			for end < len(tokens) && braceCount > 0 {
-				if tokens[end] == "{" {
-					braceCount++
-				} else if tokens[end] == "}" {
-					braceCount--
-				}
-				end++
-			}
-
-			if braceCount > 0 {
-				return nil, fmt.Errorf("closing } missing")
-			}
-
-			loopContent := strings.Join(tokens[start:end-1], " ")
-			loopCommands, err := parseCommands(loopContent)
+			loopCommands, newI, err := parseBlock(tokens, i+3)
 			if err != nil {
 				return nil, err
 			}
 
-			commands = append(commands, Command{Type: "loop", Count: count, Commands: loopCommands})
-			i = end
+			commands = append(commands, Command{Type: "repeat", Count: count, Commands: loopCommands})
+			i = newI
+
+		case "parallel":
+			if i+1 >= len(tokens) || tokens[i+1] != "{" {
+				return nil, fmt.Errorf("parallel syntax: parallel { ... }")
+			}
+
+			parallelCommands, newI, err := parseBlock(tokens, i+2)
+			if err != nil {
+				return nil, err
+			}
+
+			commands = append(commands, Command{Type: "parallel", Commands: parallelCommands})
+			i = newI
 
 		default:
 			i++
@@ -247,6 +289,31 @@ func parseCommands(input string) ([]Command, error) {
 	}
 
 	return commands, nil
+}
+
+func parseBlock(tokens []string, start int) ([]Command, int, error) {
+	braceCount := 1
+	end := start
+	for end < len(tokens) && braceCount > 0 {
+		if tokens[end] == "{" {
+			braceCount++
+		} else if tokens[end] == "}" {
+			braceCount--
+		}
+		end++
+	}
+
+	if braceCount > 0 {
+		return nil, 0, fmt.Errorf("schließende } fehlt")
+	}
+
+	blockContent := strings.Join(tokens[start:end-1], " ")
+	blockCommands, err := parseCommands(blockContent)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return blockCommands, end, nil
 }
 
 func parseFreq(s string) (float64, error) {
@@ -269,13 +336,85 @@ func executeCommands(ctx *oto.Context, commands []Command) {
 	for _, cmd := range commands {
 		switch cmd.Type {
 		case "tone":
-			playTone(ctx, cmd.Freq, cmd.Duration)
+			playTone(ctx, cmd.Freq, cmd.Duration, Sine)
+		case "wave":
+			playTone(ctx, cmd.Freq, cmd.Duration, cmd.Wave)
+		case "noise":
+			playNoise(ctx, cmd.Duration)
 		case "delay":
 			time.Sleep(cmd.Duration)
-		case "loop":
+		case "repeat":
 			for i := 0; i < cmd.Count; i++ {
 				executeCommands(ctx, cmd.Commands)
 			}
+		case "parallel":
+			executeParallel(ctx, cmd.Commands)
 		}
 	}
+}
+
+func executeParallel(ctx *oto.Context, commands []Command) {
+	var wg sync.WaitGroup
+
+	for _, cmd := range commands {
+		wg.Add(1)
+		go func(c Command) {
+			defer wg.Done()
+			executeCommands(ctx, []Command{c})
+		}(cmd)
+	}
+
+	wg.Wait()
+}
+
+func playTone(ctx *oto.Context, frequency float64, duration time.Duration, wave WaveType) {
+	sampleRate := 44100
+	samples := int(float64(sampleRate) * duration.Seconds())
+	data := make([]byte, samples*2)
+
+	for i := 0; i < samples; i++ {
+		var sample float64
+		t := float64(i) / float64(sampleRate)
+
+		switch wave {
+		case Sine:
+			sample = math.Sin(2 * math.Pi * frequency * t)
+		case Square:
+			if math.Sin(2*math.Pi*frequency*t) > 0 {
+				sample = 1.0
+			} else {
+				sample = -1.0
+			}
+		case Sawtooth:
+			sample = 2 * (frequency*t - math.Floor(frequency*t+0.5))
+		}
+
+		value := int16(sample * 32767 * 0.15)
+		data[i*2] = byte(value)
+		data[i*2+1] = byte(value >> 8)
+	}
+
+	player := ctx.NewPlayer(bytes.NewReader(data))
+	player.Play()
+	time.Sleep(duration)
+	player.Close()
+}
+
+func playNoise(ctx *oto.Context, duration time.Duration) {
+	sampleRate := 44100
+	samples := int(float64(sampleRate) * duration.Seconds())
+	data := make([]byte, samples*2)
+
+	for i := 0; i < samples; i++ {
+		sample := rand.Float64()*2 - 1       // -1 bis 1
+		value := int16(sample * 32767 * 0.1) // Leiser für Rauschen
+
+		data[i*2] = byte(value)
+		data[i*2+1] = byte(value >> 8)
+	}
+
+	player := ctx.NewPlayer(bytes.NewReader(data))
+	player.Play()
+	time.Sleep(duration)
+	player.Close()
 }

@@ -2,6 +2,7 @@ package display
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"wecker/alarm"
@@ -26,6 +27,9 @@ const (
 	StateBacklightMenu
 	StateTimeFormatMenu
 	StateSecondsMenu
+	StateTimeEdit
+	StateDaysEdit
+	StateSourceEdit
 )
 
 // MainMenuItem represents items in the main menu
@@ -55,14 +59,17 @@ const (
 
 // App holds the main TUI application
 type App struct {
-	program      *tea.Program
-	config       *config.Config
-	currentTime  time.Time
-	brightness   int
-	isActive     bool
-	menuState    MenuState
-	selectedItem int
-	inMenu       bool
+	program             *tea.Program
+	config              *config.Config
+	currentTime         time.Time
+	brightness          int
+	isActive            bool
+	menuState           MenuState
+	previousMenuState   MenuState
+	selectedItem        int
+	inMenu              bool
+	timeEditPosition    int
+	currentEditingAlarm *config.Alarm
 }
 
 // Model represents the bubbletea model
@@ -137,6 +144,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter", " ":
 			// Select button
 			m.handleSelectButton()
+		case "left":
+			// Left navigation (for time editing)
+			m.handleLeftButton()
+		case "right":
+			// Right navigation (for time editing)
+			m.handleRightButton()
+		case "esc":
+			// Escape (cancel editing)
+			m.handleEscapeButton()
 		case "d", "D":
 			// Dimmer button
 			m.handleDimmerButton()
@@ -215,12 +231,18 @@ func (app *App) renderMenu() string {
 		return app.renderAlarmMenu(&app.config.Alarm1, "ALARM 1")
 	case StateAlarm2Menu:
 		return app.renderAlarmMenu(&app.config.Alarm2, "ALARM 2")
+	case StateTimeEdit:
+		return app.renderTimeEditMenu()
+	case StateDaysEdit:
+		return app.renderDaysEditMenu()
+	case StateSourceEdit:
+		return app.renderSourceEditMenu()
 	default:
 		return app.renderMainMenu()
 	}
 }
 
-// renderMainMenu renders the main menu with ASCII art
+// renderMainMenu renders the main menu without ASCII art
 func (app *App) renderMainMenu() string {
 	menuItems := []string{
 		"TIME",
@@ -234,29 +256,35 @@ func (app *App) renderMainMenu() string {
 
 	var menuLines []string
 	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==                                    *** MENU ***")
+
+	// Create centered menu title with Lipgloss styling
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("12")).
+		Width(89).
+		Align(lipgloss.Center)
+
+	menuLines = append(menuLines, "==  "+titleStyle.Render("*** MENU ***"))
 	menuLines = append(menuLines, "==")
 
 	for i, item := range menuItems {
-		prefix := "==  "
+		itemStyle := lipgloss.NewStyle().
+			Width(80).
+			PaddingLeft(2)
+
 		if i == app.selectedItem {
-			// Highlight selected item
-			prefix = "==► "
+			// Highlight selected item with color and arrow
+			itemStyle = itemStyle.
+				Foreground(lipgloss.Color("11")).
+				Bold(true)
+			menuLines = append(menuLines, "==► "+itemStyle.Render(item))
+		} else {
+			itemStyle = itemStyle.
+				Foreground(lipgloss.Color("7"))
+			menuLines = append(menuLines, "==  "+itemStyle.Render(item))
 		}
-
-		// Generate ASCII art for the menu item
-		ascii := figure.NewFigure(item, "small", true)
-		asciiLines := strings.Split(strings.TrimSpace(ascii.String()), "\n")
-
-		for j, line := range asciiLines {
-			if j == 0 {
-				menuLines = append(menuLines, prefix+line)
-			} else {
-				menuLines = append(menuLines, "==  "+line)
-			}
-		}
-		menuLines = append(menuLines, "==")
 	}
+	menuLines = append(menuLines, "==")
 
 	return strings.Join(menuLines, "\n")
 }
@@ -287,6 +315,136 @@ func (app *App) renderAlarmMenu(alarm *config.Alarm, title string) string {
 		menuLines = append(menuLines, "==")
 	}
 
+	return strings.Join(menuLines, "\n")
+}
+
+// renderTimeEditMenu renders the time editing interface
+func (app *App) renderTimeEditMenu() string {
+	var menuLines []string
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==                               *** EDIT TIME ***")
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==")
+
+	// Get current alarm being edited
+	currentAlarm := app.currentEditingAlarm
+
+	if currentAlarm != nil {
+		// Parse current time
+		timeStr := currentAlarm.Time
+		if len(timeStr) < 8 {
+			timeStr = timeStr + ":00" // Add seconds if missing
+		}
+
+		// Display editable time format HH:MM:SS with cursor position
+		timeParts := strings.Split(timeStr, ":")
+		if len(timeParts) == 3 {
+			timeDisplay := fmt.Sprintf("    Time: %s:%s:%s", timeParts[0], timeParts[1], timeParts[2])
+
+			// Add cursor indicator based on editing position
+			cursorPos := app.timeEditPosition % 3
+			switch cursorPos {
+			case 0: // Hours
+				timeDisplay = fmt.Sprintf("    Time: [%s]:%s:%s", timeParts[0], timeParts[1], timeParts[2])
+			case 1: // Minutes
+				timeDisplay = fmt.Sprintf("    Time: %s:[%s]:%s", timeParts[0], timeParts[1], timeParts[2])
+			case 2: // Seconds
+				timeDisplay = fmt.Sprintf("    Time: %s:%s:[%s]", timeParts[0], timeParts[1], timeParts[2])
+			}
+
+			menuLines = append(menuLines, "=="+timeDisplay)
+		}
+	}
+
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==    Use LEFT/RIGHT to move cursor, UP/DOWN to change value")
+	menuLines = append(menuLines, "==    Press ENTER to confirm, ESC to cancel")
+	menuLines = append(menuLines, "==")
+
+	return strings.Join(menuLines, "\n")
+}
+
+// renderDaysEditMenu renders the day selection interface
+func (app *App) renderDaysEditMenu() string {
+	var menuLines []string
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==                              *** SELECT DAYS ***")
+	menuLines = append(menuLines, "==")
+
+	// Get current alarm being edited
+	currentAlarm := app.currentEditingAlarm
+
+	if currentAlarm != nil {
+		dayNames := []string{"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"}
+
+		for i, dayName := range dayNames {
+			checkbox := "[ ]"
+			if currentAlarm.Days[i] {
+				checkbox = "[X]"
+			}
+
+			prefix := "==  "
+			if i == app.selectedItem {
+				prefix = "==► "
+			}
+
+			menuLines = append(menuLines, fmt.Sprintf("%s%s %s", prefix, checkbox, dayName))
+		}
+
+		menuLines = append(menuLines, "==")
+		menuLines = append(menuLines, "==► BACK")
+	}
+
+	menuLines = append(menuLines, "==")
+	return strings.Join(menuLines, "\n")
+}
+
+// renderSourceEditMenu renders the alarm source configuration interface
+func (app *App) renderSourceEditMenu() string {
+	var menuLines []string
+	menuLines = append(menuLines, "==")
+	menuLines = append(menuLines, "==                            *** ALARM SOURCE ***")
+	menuLines = append(menuLines, "==")
+
+	// Get current alarm being edited
+	currentAlarm := app.currentEditingAlarm
+
+	if currentAlarm != nil {
+		sources := []string{"BUZZER", "MP3", "RADIO"}
+
+		for i, source := range sources {
+			prefix := "==  "
+			if i == app.selectedItem {
+				prefix = "==► "
+			}
+
+			selected := ""
+			if strings.ToUpper(string(currentAlarm.Source)) == source {
+				selected = " ◄"
+			}
+
+			menuLines = append(menuLines, fmt.Sprintf("%s%s%s", prefix, source, selected))
+		}
+
+		menuLines = append(menuLines, "==")
+
+		// Show current source configuration
+		switch currentAlarm.Source {
+		case config.SourceBuzzer:
+			menuLines = append(menuLines, fmt.Sprintf("==  Tone File: %s", currentAlarm.BuzzerTone))
+		case config.SourceSoother:
+			menuLines = append(menuLines, fmt.Sprintf("==  Tone File: %s", currentAlarm.SootherTone))
+		case config.SourceMP3:
+			menuLines = append(menuLines, fmt.Sprintf("==  Directory: %s", currentAlarm.MP3Directory))
+		case config.SourceRadio:
+			menuLines = append(menuLines, fmt.Sprintf("==  URL/M3U: %s", currentAlarm.RadioURL))
+		}
+
+		menuLines = append(menuLines, "==")
+		menuLines = append(menuLines, "==► BACK")
+	}
+
+	menuLines = append(menuLines, "==")
 	return strings.Join(menuLines, "\n")
 }
 
@@ -448,13 +606,27 @@ func (m *Model) handleMenuButton() {
 
 func (m *Model) handleUpButton() {
 	if m.app.inMenu {
-		// Navigate up in menu
-		maxItems := m.app.getMaxMenuItems()
-		if m.app.selectedItem > 0 {
-			m.app.selectedItem--
-		} else {
-			// Wrap to bottom
-			m.app.selectedItem = maxItems - 1
+		switch m.app.menuState {
+		case StateTimeEdit:
+			// Increase time value at current cursor position
+			m.handleTimeValueChange(1)
+		case StateDaysEdit, StateSourceEdit:
+			// Navigate up in editing menus
+			maxItems := m.app.getMaxMenuItems()
+			if m.app.selectedItem > 0 {
+				m.app.selectedItem--
+			} else {
+				m.app.selectedItem = maxItems - 1
+			}
+		default:
+			// Navigate up in menu
+			maxItems := m.app.getMaxMenuItems()
+			if m.app.selectedItem > 0 {
+				m.app.selectedItem--
+			} else {
+				// Wrap to bottom
+				m.app.selectedItem = maxItems - 1
+			}
 		}
 	} else {
 		// Brightness up when not in menu
@@ -540,46 +712,24 @@ func (m *Model) handleAlarmMenuSelect(alarm *config.Alarm) {
 		// Toggle alarm enabled state
 		alarm.Enabled = !alarm.Enabled
 	case int(AlarmMenuTime):
-		// TODO: Implement time setting (would need time picker)
-		// For now, just cycle through some preset times
-		switch alarm.Time {
-		case "06:00":
-			alarm.Time = "06:30"
-		case "06:30":
-			alarm.Time = "07:00"
-		case "07:00":
-			alarm.Time = "07:30"
-		case "07:30":
-			alarm.Time = "08:00"
-		case "08:00":
-			alarm.Time = "06:00"
-		default:
-			alarm.Time = "07:00"
-		}
+		// Enter time editing mode
+		m.app.previousMenuState = m.app.menuState
+		m.app.menuState = StateTimeEdit
+		m.app.timeEditPosition = 0
+		m.app.currentEditingAlarm = alarm
+		m.app.selectedItem = 0
 	case int(AlarmMenuDays):
-		// TODO: Implement days selection (would need day picker)
-		// For now, toggle between weekdays and all days
-		if m.app.countActiveDays(alarm.Days) == 5 {
-			// Set to all days
-			alarm.Days = []bool{true, true, true, true, true, true, true}
-		} else {
-			// Set to weekdays only
-			alarm.Days = []bool{false, true, true, true, true, true, false}
-		}
+		// Enter days editing mode
+		m.app.previousMenuState = m.app.menuState
+		m.app.menuState = StateDaysEdit
+		m.app.currentEditingAlarm = alarm
+		m.app.selectedItem = 0
 	case int(AlarmMenuSource):
-		// Cycle through alarm sources
-		switch alarm.Source {
-		case config.SourceBuzzer:
-			alarm.Source = config.SourceMP3
-		case config.SourceMP3:
-			alarm.Source = config.SourceRadio
-		case config.SourceRadio:
-			alarm.Source = config.SourceSoother
-		case config.SourceSoother:
-			alarm.Source = config.SourceBuzzer
-		default:
-			alarm.Source = config.SourceBuzzer
-		}
+		// Enter source editing mode
+		m.app.previousMenuState = m.app.menuState
+		m.app.menuState = StateSourceEdit
+		m.app.currentEditingAlarm = alarm
+		m.app.selectedItem = 0
 	case int(AlarmMenuVolume):
 		// Cycle volume (10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
 		newVolume := alarm.Volume + 10
@@ -605,4 +755,86 @@ func (m *Model) handleDimmerButton() {
 
 func (m *Model) handleSleepTimerHold() {
 	// Basic sleep timer functionality - can be expanded
+}
+
+func (m *Model) handleLeftButton() {
+	if m.app.menuState == StateTimeEdit {
+		// Move cursor left in time editing
+		if m.app.timeEditPosition > 0 {
+			m.app.timeEditPosition--
+		}
+	}
+}
+
+func (m *Model) handleRightButton() {
+	if m.app.menuState == StateTimeEdit {
+		// Move cursor right in time editing
+		if m.app.timeEditPosition < 2 {
+			m.app.timeEditPosition++
+		}
+	}
+}
+
+func (m *Model) handleEscapeButton() {
+	// Cancel editing and return to previous menu
+	switch m.app.menuState {
+	case StateTimeEdit, StateDaysEdit, StateSourceEdit:
+		m.app.menuState = m.app.previousMenuState
+		m.app.selectedItem = 0
+		m.app.currentEditingAlarm = nil
+	case StateMainMenu:
+		// Exit menu mode
+		m.app.inMenu = false
+		m.app.menuState = StateTime
+	}
+}
+
+func (m *Model) handleTimeValueChange(direction int) {
+	if m.app.currentEditingAlarm == nil {
+		return
+	}
+
+	// Parse current time
+	timeStr := m.app.currentEditingAlarm.Time
+	if len(timeStr) < 8 {
+		timeStr = timeStr + ":00"
+	}
+
+	timeParts := strings.Split(timeStr, ":")
+	if len(timeParts) != 3 {
+		return
+	}
+
+	// Convert to integers
+	hours, _ := strconv.Atoi(timeParts[0])
+	minutes, _ := strconv.Atoi(timeParts[1])
+	seconds, _ := strconv.Atoi(timeParts[2])
+
+	// Modify based on cursor position
+	switch m.app.timeEditPosition {
+	case 0: // Hours
+		hours += direction
+		if hours < 0 {
+			hours = 23
+		} else if hours > 23 {
+			hours = 0
+		}
+	case 1: // Minutes
+		minutes += direction
+		if minutes < 0 {
+			minutes = 59
+		} else if minutes > 59 {
+			minutes = 0
+		}
+	case 2: // Seconds
+		seconds += direction
+		if seconds < 0 {
+			seconds = 59
+		} else if seconds > 59 {
+			seconds = 0
+		}
+	}
+
+	// Update the alarm time
+	m.app.currentEditingAlarm.Time = fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
 }

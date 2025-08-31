@@ -43,7 +43,7 @@ func (p *Player) PlayAlarm(alarm *config.Alarm) error {
 	case config.SourceBuzzer:
 		audioPath, err = p.getBuzzerPath(alarm.BuzzerType)
 	case config.SourceMP3:
-		audioPath = alarm.MP3Path
+		audioPath = alarm.MP3Directory
 	case config.SourceRadio:
 		audioPath = alarm.RadioURL
 	case config.SourceSoother:
@@ -261,19 +261,4 @@ func (p *Player) SetVolume(volume int) {
 	}
 
 	p.setVolume(volume)
-}
-
-// Helper functions for Go 1.20 compatibility
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

@@ -3,9 +3,10 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/hajimehoshi/oto/v2"
 	"math"
 	"time"
+
+	"github.com/hajimehoshi/oto/v2"
 )
 
 func main() {
@@ -39,7 +40,7 @@ func main() {
 func pattern1(ctx *oto.Context) {
 	fmt.Println("Pattern 1: Kontinuierlicher Alarm")
 	for {
-		playTone(ctx, 499, 130*time.Millisecond)
+		playTone_one(ctx, 499, 130*time.Millisecond)
 		time.Sleep(100 * time.Millisecond)
 	}
 }
@@ -57,8 +58,8 @@ func pattern2(ctx *oto.Context) {
 func pattern3(ctx *oto.Context) {
 	fmt.Println("Pattern 3: Sirenen-Alarm")
 	for i := 0; i < 20; i++ {
-		playTone(ctx, NOTE_E6, 300*time.Millisecond)
-		playTone(ctx, NOTE_C5, 300*time.Millisecond)
+		playTone_one(ctx, NOTE_E6, 300*time.Millisecond)
+		playTone_one(ctx, NOTE_C5, 300*time.Millisecond)
 	}
 }
 
@@ -67,7 +68,7 @@ func pattern4(ctx *oto.Context) {
 	fmt.Println("Pattern 4: Dreifach-Beep Alarm")
 	for i := 0; i < 10; i++ {
 		for j := 0; j < 3; j++ {
-			playTone(ctx, NOTE_A5, 150*time.Millisecond)
+			playTone_one(ctx, NOTE_A5, 150*time.Millisecond)
 			time.Sleep(100 * time.Millisecond)
 		}
 		time.Sleep(1 * time.Second)
@@ -81,7 +82,7 @@ func pattern5(ctx *oto.Context) {
 
 	for i := 0; i < 5; i++ {
 		for _, note := range notes {
-			playTone(ctx, note, 250*time.Millisecond)
+			playTone_one(ctx, note, 250*time.Millisecond)
 			time.Sleep(50 * time.Millisecond)
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -90,12 +91,12 @@ func pattern5(ctx *oto.Context) {
 
 func playPattern(ctx *oto.Context, count int, freq float64, duration, delay time.Duration) {
 	for i := 0; i < count; i++ {
-		playTone(ctx, freq, duration)
+		playTone_one(ctx, freq, duration)
 		time.Sleep(delay)
 	}
 }
 
-func playTone(ctx *oto.Context, frequency float64, duration time.Duration) {
+func playTone_one(ctx *oto.Context, frequency float64, duration time.Duration) {
 	sampleRate := 44100
 	samples := int(float64(sampleRate) * duration.Seconds())
 	data := make([]byte, samples*2)

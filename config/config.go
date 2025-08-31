@@ -13,24 +13,21 @@ type AlarmSource string
 
 const (
 	SourceBuzzer  AlarmSource = "buzzer"
+	SourceSoother AlarmSource = "soother"
 	SourceMP3     AlarmSource = "mp3"
 	SourceRadio   AlarmSource = "radio"
-	SourceSoother AlarmSource = "soother"
 )
 
 // Alarm represents a single alarm configuration
 type Alarm struct {
-	ID          int         `json:"id"`
-	Enabled     bool        `json:"enabled"`
-	Time        string      `json:"time"` // HH:MM format
-	Days        []bool      `json:"days"` // 7 days, Sunday=0
-	Source      AlarmSource `json:"source"`
-	Volume      int         `json:"volume"`      // 1-100
-	BuzzerType  int         `json:"buzzer_type"` // 1-5
-	MP3Path     string      `json:"mp3_path"`
-	RadioURL    string      `json:"radio_url"`
-	SootherType int         `json:"soother_type"` // 1-27
-	VolumeRamp  bool        `json:"volume_ramp"`  // Progressive volume increase
+	ID               int         `json:"id"`
+	Enabled          bool        `json:"enabled"`
+	Time             string      `json:"time"` // HH:MM:SS format
+	Days             []bool      `json:"days"` // 7 days, Sunday=0
+	Source           AlarmSource `json:"source"`
+	Volume           int         `json:"volume"`             // 1-100
+	AlarmSourceValue string      `json:"alarm_source_value"` // sound file (.tone) or .mp3 or .m3u
+	VolumeRamp       bool        `json:"volume_ramp"`        // Progressive volume increase
 }
 
 // Config represents the application configuration
@@ -50,10 +47,9 @@ type Config struct {
 	SleepMinutes  int `json:"sleep_minutes"`  // 15, 30, 45, 60, 90, 120
 
 	// Audio settings
-	PlayerCommand   string `json:"player_command"` // e.g., "mpv"
-	LastRadioURL    string `json:"last_radio_url"`
-	LastMP3Path     string `json:"last_mp3_path"`
-	LastSootherType int    `json:"last_soother_type"`
+	PlayerCommand string `json:"player_command"` // e.g., "mpv"
+	LastRadioURL  string `json:"last_radio_url"`
+	LastMP3Path   string `json:"last_mp3_path"`
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -66,27 +62,24 @@ func DefaultConfig() *Config {
 		Alarm1: Alarm{
 			ID:         1,
 			Enabled:    false,
-			Time:       "07:00",
+			Time:       "07:00:00",
 			Days:       []bool{false, true, true, true, true, true, false}, // Mon-Fri
 			Source:     SourceBuzzer,
 			Volume:     50,
-			BuzzerType: 1,
 			VolumeRamp: true,
 		},
 		Alarm2: Alarm{
 			ID:         2,
 			Enabled:    false,
-			Time:       "07:30",
+			Time:       "07:30:00",
 			Days:       []bool{false, true, true, true, true, true, false}, // Mon-Fri
 			Source:     SourceBuzzer,
 			Volume:     50,
-			BuzzerType: 2,
 			VolumeRamp: true,
 		},
-		SnoozeMinutes:   5,
-		SleepMinutes:    60,
-		PlayerCommand:   "mpv",
-		LastSootherType: 1,
+		SnoozeMinutes: 5,
+		SleepMinutes:  60,
+		PlayerCommand: "mpv",
 	}
 }
 
@@ -150,8 +143,15 @@ func (a *Alarm) IsAlarmActive(t time.Time) bool {
 	}
 
 	// Check if current time matches alarm time (within 1 minute)
-	currentTimeStr := t.Format("15:04")
-	return currentTimeStr == a.Time
+	currentTimeStr := t.Format("15:04:05")
+	alarmTime := a.Time
+
+	// Handle both HH:MM:SS and HH:MM formats for backwards compatibility
+	if len(alarmTime) == 5 { // HH:MM format
+		alarmTime += ":00"
+	}
+
+	return currentTimeStr == alarmTime
 }
 
 // FormatTime formats time according to 12/24 hour setting
@@ -171,23 +171,4 @@ func (c *Config) FormatTime(t time.Time) string {
 // getConfigPath returns the path to the config file
 func getConfigPath() string {
 	return "config.json"
-}
-
-// GetSootherNames returns the names of available sound soother options
-func GetSootherNames() []string {
-	return []string{
-		"Ocean Waves", "Rain Forest", "Thunder Storm", "White Noise", "Pink Noise",
-		"Brown Noise", "Creek", "Waterfall", "Wind", "Fire Crackling",
-		"Birds Chirping", "Cafe", "Library", "Fan", "Air Conditioner",
-		"City Rain", "Forest Night", "Beach", "Mountain Stream", "Desert Wind",
-		"Space Ambient", "Deep Ocean", "Morning Birds", "Evening Cricket", "Zen Garden",
-		"Himalayan Bowls", "Celtic Rain",
-	}
-}
-
-// GetBuzzerNames returns the names of available buzzer sounds
-func GetBuzzerNames() []string {
-	return []string{
-		"Classic Beep", "Digital Chirp", "Gentle Bell", "Urgent Alert", "Soft Tone",
-	}
 }
