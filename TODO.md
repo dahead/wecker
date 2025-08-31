@@ -1,3 +1,28 @@
+saving the alarm settings does not work.
+
+selection menu is very complicated with up/down, also screen does not repaint arrows correct. you still dont use colors every where to make the app look modern / hacker style.
+
+use go-figure again, it looked better with it. make the font name customizable in the app settings.
+
+make the input of alarm time simpler. let the user just input numbers instead of scrolling up/down. ENTER also leaves the time set menu.
+
+
+
+these are all not used:
+
+	StateBrightnessMenu
+	StateBacklightMenu
+	StateTimeFormatMenu
+	StateSecondsMenu
+
+
+display.go is very long. refactor the module and move stuff like getAvailableFiles out of it. just keep the ui stuff in.
+
+remove all the ======= styles and all other styles. just make a simple normal TUI app which shows the time (ascii art, big) and at the bottom [SETTINGS]     [ALARM 1] [ALARM 2] and so on. be a little creative.
+
+
+
+
 use bubbletea and lipgloss for formatting an 
 highlighing
 

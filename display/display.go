@@ -2,8 +2,7 @@ package display
 
 import (
 	"fmt"
-	"path/filepath"
-	"sort"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,490 +13,943 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/common-nighthawk/go-figure"
 )
 
-// MenuState represents the current menu state
-type MenuState int
+// AppState represents the current state of the application
+type AppState int
 
 const (
-	StateTime MenuState = iota
-	StateMainMenu
-	StateAlarm1Menu
-	StateAlarm2Menu
-	StateBrightnessMenu
-	StateBacklightMenu
-	StateTimeFormatMenu
-	StateSecondsMenu
-	StateTimeEdit
-	StateDaysEdit
-	StateSourceEdit
-	StateSourceTypeSelect
-	StateSourceFileSelect
-	StateSourceStringInput
-)
-
-// MainMenuItem represents items in the main menu
-type MainMenuItem int
-
-const (
-	MenuItemTime MainMenuItem = iota
-	MenuItemAlarm1
-	MenuItemAlarm2
-	MenuItemBrightness
-	MenuItemBacklight
-	MenuItemTimeFormat
-	MenuItemSeconds
-)
-
-// AlarmMenuItem represents items in alarm configuration menu
-type AlarmMenuItem int
-
-const (
-	AlarmMenuEnabled AlarmMenuItem = iota
-	AlarmMenuTime
-	AlarmMenuDays
-	AlarmMenuSource
-	AlarmMenuVolume
-	AlarmMenuBack
+	StateMainClock AppState = iota
+	StateSettings
+	StateAlarmEdit
+	StateTimeInput
+	StateAlarmDays
+	StateAlarmSource
+	StateAlarmVolume
+	StateAlarmToneSelect
+	StateAlarmCustomPath
 )
 
 // App holds the main TUI application
 type App struct {
-	program             *tea.Program
-	config              *config.Config
-	currentTime         time.Time
-	brightness          int
-	isActive            bool
-	menuState           MenuState
-	previousMenuState   MenuState
-	selectedItem        int
-	inMenu              bool
-	timeEditPosition    int
-	currentEditingAlarm *config.Alarm
-	// Source configuration fields
-	availableFiles    []string // Available files for current source type
-	selectedFileIndex int      // Index of selected file
-	stringInput       string   // String input for mp3/radio paths
-	stringEditMode    bool     // Whether we're editing the string input
+	program      *tea.Program
+	config       *config.Config
+	alarmManager *alarm.Manager
+	timerManager *timer.Manager
+	audioPlayer  *audio.Player
+
+	// UI state
+	state           AppState
+	selectedMenu    int
+	editingAlarm    int // 1 or 2
+	timeInput       string
+	customPathInput string
+	availableTones  []string
+	availableFonts  []string
+
+	// Styles with modern hacker colors
+	titleStyle       lipgloss.Style
+	menuStyle        lipgloss.Style
+	selectedStyle    lipgloss.Style
+	timeStyle        lipgloss.Style
+	errorStyle       lipgloss.Style
+	instructionStyle lipgloss.Style
 }
 
 // Model represents the bubbletea model
 type Model struct {
-	app          *App
-	alarmManager *alarm.Manager
-	timerManager *timer.Manager
-	audioPlayer  *audio.Player
+	app *App
 }
 
 // TickMsg is sent every second to update the clock
 type TickMsg time.Time
 
-// NewApp creates a new display application
+// NewApp creates a new display application with modern styling
 func NewApp(cfg *config.Config, alarmMgr *alarm.Manager, timerMgr *timer.Manager, audioPlayer *audio.Player) *App {
 	app := &App{
 		config:       cfg,
-		brightness:   cfg.Brightness,
-		isActive:     true,
-		menuState:    StateTime,
-		selectedItem: 0,
-		inMenu:       false,
-	}
-
-	model := Model{
-		app:          app,
 		alarmManager: alarmMgr,
 		timerManager: timerMgr,
 		audioPlayer:  audioPlayer,
-	}
-	app.program = tea.NewProgram(model, tea.WithAltScreen())
+		state:        StateMainClock,
+		selectedMenu: 0,
+		// fontName is now stored in config
+		availableTones: discoverToneFiles(),
+		availableFonts: []string{"big", "small", "3d", "3x5", "5lineoblique", "alphabet", "banner", "doh", "isometric1", "letters", "alligator"},
 
+		// Modern hacker-style color scheme
+		titleStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00FF00")).
+			Bold(true).
+			Align(lipgloss.Center),
+
+		menuStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#333333")).
+			Padding(0, 1),
+
+		selectedStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#000000")).
+			Background(lipgloss.Color("#00FF00")).
+			Padding(0, 1).
+			Bold(true),
+
+		timeStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00FFFF")).
+			Align(lipgloss.Center),
+
+		errorStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF0000")).
+			Bold(true),
+
+		instructionStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888888")).
+			Align(lipgloss.Center),
+	}
+
+	model := Model{app: app}
+	app.program = tea.NewProgram(model, tea.WithAltScreen())
 	return app
 }
 
-// Init implements tea.Model
+// Init initializes the model
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
-		tea.Tick(time.Second, func(t time.Time) tea.Msg {
-			return TickMsg(t)
-		}),
-	)
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return TickMsg(t)
+	})
 }
 
-// Update implements tea.Model
+// Update handles messages
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case TickMsg:
-		m.app.currentTime = time.Time(msg)
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return TickMsg(t)
 		})
+
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q", "Q":
+		case "ctrl+c", "q":
+			// IMPORTANT: Save config before quitting to fix alarm settings saving issue
+			if err := m.app.config.Save(); err != nil {
+				// Log error but don't prevent quit
+			}
 			return m, tea.Quit
-		case "p", "P":
-			// Power/Sleep button
-			m.handlePowerButton()
-		case "s", "S":
-			// Snooze button
-			m.handleSnoozeButton()
-		case "m", "M", "i", "I":
-			// Info/Menu button
-			m.handleMenuButton()
-		case "up":
-			// Up button
-			m.handleUpButton()
-		case "down":
-			// Down button
-			m.handleDownButton()
-		case "enter":
-			// Select button
-			m.handleSelectButton()
-		case " ":
-			// Space - play button for file selection or select for other menus
-			if m.app.menuState == StateSourceFileSelect {
-				m.handlePlayButton()
-			} else {
-				m.handleSelectButton()
-			}
-		case "left":
-			// Left navigation (for time editing)
-			m.handleLeftButton()
-		case "right":
-			// Right navigation (for time editing)
-			m.handleRightButton()
+
 		case "esc":
-			// Escape (cancel editing)
-			m.handleEscapeButton()
-		case "backspace":
-			// Backspace for string editing
-			if m.app.menuState == StateSourceStringInput && m.app.stringEditMode && len(m.app.stringInput) > 0 {
-				m.app.stringInput = m.app.stringInput[:len(m.app.stringInput)-1]
+			switch m.app.state {
+			case StateSettings:
+				m.app.state = StateMainClock
+				m.app.selectedMenu = 0
+			case StateAlarmEdit:
+				m.app.state = StateMainClock
+				m.app.selectedMenu = m.app.editingAlarm - 1
+			case StateTimeInput, StateAlarmDays, StateAlarmVolume, StateAlarmToneSelect, StateAlarmCustomPath:
+				m.app.state = StateAlarmEdit
+				m.app.selectedMenu = 0
+				m.app.customPathInput = "" // Clear input on cancel
+			case StateMainClock:
+				// Already at main clock, do nothing
+			default:
+				m.app.state = StateMainClock
+				m.app.selectedMenu = 0
 			}
-		case "d", "D":
-			// Dimmer button
-			m.handleDimmerButton()
-		case "h", "H":
-			// Sleep timer hold
-			m.handleSleepTimerHold()
-		default:
-			// Handle character input for string editing
-			if m.app.menuState == StateSourceStringInput && m.app.stringEditMode {
-				if len(msg.String()) == 1 {
-					char := msg.String()
-					// Allow alphanumeric, /, ., -, _ and space
-					if (char >= "a" && char <= "z") || (char >= "A" && char <= "Z") ||
-						(char >= "0" && char <= "9") || char == "/" || char == "." ||
-						char == "-" || char == "_" || char == " " || char == ":" {
-						m.app.stringInput += char
-					}
+
+		case "enter":
+			return m.handleEnter()
+
+		case "up", "k":
+			return m.handleUp()
+
+		case "down", "j":
+			return m.handleDown()
+
+		case "left", "h":
+			return m.handleLeft()
+
+		case "right", "l":
+			return m.handleRight()
+
+		case "t":
+			// Simple time editing - press T to enter time input
+			if m.app.state == StateAlarmEdit {
+				m.app.state = StateTimeInput
+				m.app.timeInput = ""
+			}
+
+		case "e":
+			// Toggle alarm enabled/disabled
+			if m.app.state == StateAlarmEdit {
+				if m.app.editingAlarm == 1 {
+					m.app.config.Alarm1.Enabled = !m.app.config.Alarm1.Enabled
+				} else {
+					m.app.config.Alarm2.Enabled = !m.app.config.Alarm2.Enabled
 				}
+				// Save immediately when toggling alarm
+				m.app.config.Save()
+			}
+
+		default:
+			if m.app.state == StateTimeInput {
+				return m.handleTimeInput(msg.String())
+			} else if m.app.state == StateAlarmCustomPath {
+				return m.handleCustomPathInput(msg.String())
+			}
+		}
+	}
+
+	return m, nil
+}
+
+// View renders the UI
+func (m Model) View() string {
+	switch m.app.state {
+	case StateMainClock:
+		return m.renderMainClock()
+	case StateSettings:
+		return m.renderSettings()
+	case StateAlarmEdit:
+		return m.renderAlarmEdit()
+	case StateTimeInput:
+		return m.renderTimeInput()
+	case StateAlarmDays:
+		return m.renderAlarmDays()
+	case StateAlarmVolume:
+		return m.renderAlarmVolume()
+	case StateAlarmToneSelect:
+		return m.renderAlarmToneSelect()
+	case StateAlarmCustomPath:
+		return m.renderAlarmCustomPath()
+	default:
+		return m.renderMainClock()
+	}
+}
+
+// Render main clock view with ASCII art using go-figure
+func (m Model) renderMainClock() string {
+	var content strings.Builder
+
+	// Get current time
+	now := time.Now()
+	timeStr := m.app.config.FormatTime(now)
+
+	// Create ASCII art time using go-figure with configurable font
+	asciiTime := figure.NewFigure(timeStr, m.app.config.FontName, true).String()
+
+	// Style the ASCII time with cyan color
+	styledTime := m.app.timeStyle.Render(asciiTime)
+
+	// Build centered layout
+	content.WriteString("\n\n")
+	content.WriteString(styledTime)
+	content.WriteString("\n\n")
+
+	// Add alarm status with colors
+	content.WriteString(m.renderAlarmStatus())
+	content.WriteString("\n\n")
+
+	// Add simple bottom menu bar
+	content.WriteString(m.renderBottomMenu())
+	content.WriteString("\n\n")
+
+	// Add navigation instructions
+	instructions := "← → to navigate  •  ENTER to select  •  Q to quit"
+	content.WriteString(m.app.instructionStyle.Render(instructions))
+
+	return content.String()
+}
+
+// Render alarm status with modern colors
+func (m Model) renderAlarmStatus() string {
+	var status strings.Builder
+
+	// Alarm 1 status
+	alarm1Icon := "⏰"
+	color1 := "#666666"
+	if m.app.config.Alarm1.Enabled {
+		alarm1Icon = "🔔"
+		color1 = "#00FF00"
+	}
+
+	alarm1Text := fmt.Sprintf("%s ALARM 1: %s", alarm1Icon, m.app.config.Alarm1.Time[:5])
+	if m.app.config.Alarm1.Enabled {
+		activeDays := m.getActiveDaysString(m.app.config.Alarm1.Days)
+		alarm1Text += fmt.Sprintf(" [%s]", activeDays)
+	} else {
+		alarm1Text += " [OFF]"
+	}
+
+	status.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color(color1)).
+		Render(alarm1Text))
+
+	status.WriteString("    ")
+
+	// Alarm 2 status
+	alarm2Icon := "⏰"
+	color2 := "#666666"
+	if m.app.config.Alarm2.Enabled {
+		alarm2Icon = "🔔"
+		color2 = "#00FF00"
+	}
+
+	alarm2Text := fmt.Sprintf("%s ALARM 2: %s", alarm2Icon, m.app.config.Alarm2.Time[:5])
+	if m.app.config.Alarm2.Enabled {
+		activeDays := m.getActiveDaysString(m.app.config.Alarm2.Days)
+		alarm2Text += fmt.Sprintf(" [%s]", activeDays)
+	} else {
+		alarm2Text += " [OFF]"
+	}
+
+	status.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color(color2)).
+		Render(alarm2Text))
+
+	return lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Render(status.String())
+}
+
+// Get active days string
+func (m Model) getActiveDaysString(days []bool) string {
+	dayNames := []string{"S", "M", "T", "W", "T", "F", "S"}
+	var active []string
+
+	for i, enabled := range days {
+		if enabled {
+			active = append(active, dayNames[i])
+		}
+	}
+
+	if len(active) == 0 {
+		return "NONE"
+	}
+	return strings.Join(active, "")
+}
+
+// Render simple bottom menu (no complex arrows or styles)
+func (m Model) renderBottomMenu() string {
+	menuItems := []string{"SETTINGS", "ALARM 1", "ALARM 2"}
+	var rendered []string
+
+	for i, item := range menuItems {
+		if i == m.app.selectedMenu && m.app.state == StateMainClock {
+			rendered = append(rendered, m.app.selectedStyle.Render(fmt.Sprintf(" %s ", item)))
+		} else {
+			rendered = append(rendered, m.app.menuStyle.Render(fmt.Sprintf(" %s ", item)))
+		}
+	}
+
+	return lipgloss.NewStyle().
+		Align(lipgloss.Center).
+		Render(lipgloss.JoinHorizontal(lipgloss.Left, rendered...))
+}
+
+// Handle Enter key
+func (m Model) handleEnter() (tea.Model, tea.Cmd) {
+	switch m.app.state {
+	case StateMainClock:
+		switch m.app.selectedMenu {
+		case 0: // Settings
+			m.app.state = StateSettings
+			m.app.selectedMenu = 0
+		case 1: // Alarm 1
+			m.app.state = StateAlarmEdit
+			m.app.editingAlarm = 1
+			m.app.selectedMenu = 0
+		case 2: // Alarm 2
+			m.app.state = StateAlarmEdit
+			m.app.editingAlarm = 2
+			m.app.selectedMenu = 0
+		}
+	case StateSettings:
+		switch m.app.selectedMenu {
+		case 0: // Font - RETURN key changes font as requested
+			currentIndex := 0
+			for i, font := range m.app.availableFonts {
+				if font == m.app.config.FontName {
+					currentIndex = i
+					break
+				}
+			}
+			m.app.config.FontName = m.app.availableFonts[(currentIndex+1)%len(m.app.availableFonts)]
+			m.app.config.Save()
+		case 1: // 24H Format
+			m.app.config.Hour24Format = !m.app.config.Hour24Format
+			m.app.config.Save()
+		case 2: // Show Seconds
+			m.app.config.ShowSeconds = !m.app.config.ShowSeconds
+			m.app.config.Save()
+		case 3: // Back
+			m.app.state = StateMainClock
+			m.app.selectedMenu = 0
+		}
+	case StateAlarmEdit:
+		var alarm *config.Alarm
+		if m.app.editingAlarm == 1 {
+			alarm = &m.app.config.Alarm1
+		} else {
+			alarm = &m.app.config.Alarm2
+		}
+
+		maxOptions := 5 // Enabled, Time, Days, Volume, Source
+		if alarm.Source == config.SourceBuzzer {
+			maxOptions = 6 // Add Tone selection
+		} else if alarm.Source == config.SourceMP3 || alarm.Source == config.SourceRadio {
+			maxOptions = 6 // Add Custom path
+		}
+
+		switch m.app.selectedMenu {
+		case 0: // Toggle enabled
+			alarm.Enabled = !alarm.Enabled
+			m.app.config.Save()
+		case 1: // Edit time
+			m.app.state = StateTimeInput
+			m.app.timeInput = ""
+		case 2: // Edit days
+			m.app.state = StateAlarmDays
+			m.app.selectedMenu = 0
+		case 3: // Edit volume
+			m.app.state = StateAlarmVolume
+		case 4: // Change source
+			sources := []config.AlarmSource{config.SourceBuzzer, config.SourceMP3, config.SourceRadio}
+			currentIndex := 0
+			for i, source := range sources {
+				if source == alarm.Source {
+					currentIndex = i
+					break
+				}
+			}
+			alarm.Source = sources[(currentIndex+1)%len(sources)]
+			// Reset source value when changing source
+			alarm.AlarmSourceValue = ""
+			m.app.config.Save()
+		case 5: // Source-specific options
+			if alarm.Source == config.SourceBuzzer {
+				m.app.state = StateAlarmToneSelect
+				m.app.selectedMenu = 0
+			} else if alarm.Source == config.SourceMP3 || alarm.Source == config.SourceRadio {
+				m.app.state = StateAlarmCustomPath
+				m.app.customPathInput = alarm.AlarmSourceValue
+			}
+		default: // Back
+			if m.app.selectedMenu >= maxOptions {
+				m.app.state = StateMainClock
+				m.app.selectedMenu = m.app.editingAlarm - 1
+			}
+		}
+	case StateTimeInput:
+		// Process time input and save - ENTER leaves time set menu as requested
+		if m.parseAndSetTime() {
+			m.app.state = StateAlarmEdit
+			m.app.config.Save()
+		}
+	case StateAlarmDays:
+		// Toggle day selection
+		var alarm *config.Alarm
+		if m.app.editingAlarm == 1 {
+			alarm = &m.app.config.Alarm1
+		} else {
+			alarm = &m.app.config.Alarm2
+		}
+		if m.app.selectedMenu < 7 {
+			alarm.Days[m.app.selectedMenu] = !alarm.Days[m.app.selectedMenu]
+			m.app.config.Save()
+		}
+	case StateAlarmVolume:
+		// Volume handled by left/right keys
+	case StateAlarmToneSelect:
+		// Select tone file
+		var alarm *config.Alarm
+		if m.app.editingAlarm == 1 {
+			alarm = &m.app.config.Alarm1
+		} else {
+			alarm = &m.app.config.Alarm2
+		}
+		if m.app.selectedMenu < len(m.app.availableTones) {
+			alarm.AlarmSourceValue = "include/sounds/buzzer/" + m.app.availableTones[m.app.selectedMenu]
+			m.app.config.Save()
+			m.app.state = StateAlarmEdit
+			m.app.selectedMenu = 5
+		}
+	case StateAlarmCustomPath:
+		// Save custom path
+		var alarm *config.Alarm
+		if m.app.editingAlarm == 1 {
+			alarm = &m.app.config.Alarm1
+		} else {
+			alarm = &m.app.config.Alarm2
+		}
+		alarm.AlarmSourceValue = m.app.customPathInput
+		m.app.config.Save()
+		m.app.state = StateAlarmEdit
+		m.app.selectedMenu = 5
+		m.app.customPathInput = ""
+	}
+
+	return m, nil
+}
+
+// Enhanced navigation handlers for all states
+func (m Model) handleUp() (tea.Model, tea.Cmd) {
+	switch m.app.state {
+	case StateSettings:
+		if m.app.selectedMenu > 0 {
+			m.app.selectedMenu--
+		}
+	case StateAlarmEdit:
+		if m.app.selectedMenu > 0 {
+			m.app.selectedMenu--
+		}
+	case StateAlarmDays:
+		if m.app.selectedMenu > 0 {
+			m.app.selectedMenu--
+		}
+	case StateAlarmToneSelect:
+		if m.app.selectedMenu > 0 {
+			m.app.selectedMenu--
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleDown() (tea.Model, tea.Cmd) {
+	switch m.app.state {
+	case StateMainClock:
+		// No up/down navigation on main clock
+	case StateSettings:
+		maxItems := 4 // Font, 24H, Seconds, Back
+		if m.app.selectedMenu < maxItems-1 {
+			m.app.selectedMenu++
+		}
+	case StateAlarmEdit:
+		var alarm *config.Alarm
+		if m.app.editingAlarm == 1 {
+			alarm = &m.app.config.Alarm1
+		} else {
+			alarm = &m.app.config.Alarm2
+		}
+
+		maxOptions := 6 // Enabled, Time, Days, Volume, Source, Back
+		if alarm.Source == config.SourceBuzzer {
+			maxOptions = 7 // Add Tone selection
+		} else if alarm.Source == config.SourceMP3 || alarm.Source == config.SourceRadio {
+			maxOptions = 7 // Add Custom path
+		}
+
+		if m.app.selectedMenu < maxOptions-1 {
+			m.app.selectedMenu++
+		}
+	case StateAlarmDays:
+		if m.app.selectedMenu < 6 { // 7 days (0-6)
+			m.app.selectedMenu++
+		}
+	case StateAlarmToneSelect:
+		if m.app.selectedMenu < len(m.app.availableTones)-1 {
+			m.app.selectedMenu++
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleLeft() (tea.Model, tea.Cmd) {
+	switch m.app.state {
+	case StateMainClock:
+		if m.app.selectedMenu > 0 {
+			m.app.selectedMenu--
+		}
+	case StateAlarmVolume:
+		// Decrease volume
+		var alarm *config.Alarm
+		if m.app.editingAlarm == 1 {
+			alarm = &m.app.config.Alarm1
+		} else {
+			alarm = &m.app.config.Alarm2
+		}
+		if alarm.Volume > 0 {
+			alarm.Volume -= 5
+			if alarm.Volume < 0 {
+				alarm.Volume = 0
+			}
+			m.app.config.Save()
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleRight() (tea.Model, tea.Cmd) {
+	switch m.app.state {
+	case StateMainClock:
+		if m.app.selectedMenu < 2 {
+			m.app.selectedMenu++
+		}
+	case StateAlarmVolume:
+		// Increase volume
+		var alarm *config.Alarm
+		if m.app.editingAlarm == 1 {
+			alarm = &m.app.config.Alarm1
+		} else {
+			alarm = &m.app.config.Alarm2
+		}
+		if alarm.Volume < 100 {
+			alarm.Volume += 5
+			if alarm.Volume > 100 {
+				alarm.Volume = 100
+			}
+			m.app.config.Save()
+		}
+	}
+	return m, nil
+}
+
+// Simple time input - just numbers, no complex scrolling
+func (m Model) handleTimeInput(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "backspace":
+		if len(m.app.timeInput) > 0 {
+			m.app.timeInput = m.app.timeInput[:len(m.app.timeInput)-1]
+		}
+	default:
+		// Only allow digits and colon for simple input
+		if len(key) == 1 && (key >= "0" && key <= "9" || key == ":") {
+			if len(m.app.timeInput) < 8 { // HH:MM:SS format
+				m.app.timeInput += key
 			}
 		}
 	}
 	return m, nil
 }
 
-// View implements tea.Model
-func (m Model) View() string {
-	if m.app.currentTime.IsZero() {
-		m.app.currentTime = time.Now()
-	}
-
-	// Create header with controls repositioned to top
-	header := "    POWER / SLEEP                             SNOOZE                            INFO / MENU\n" +
-		strings.Repeat("=", 93) + "\n" +
-		"==                                        UP / DOWN                                     SELECT\n" +
-		"=="
-
-	// Display menu or time based on current state
-	var content string
-	if m.app.inMenu {
-		content = m.app.renderMenu()
-	} else {
-		content = m.app.renderTimeDisplay()
-	}
-
-	// Create footer
-	footer := "==\n" +
-		strings.Repeat("=", 93)
-
-	// Combine all sections
-	fullContent := fmt.Sprintf("%s\n%s\n%s", header, content, footer)
-
-	// Apply brightness styling
-	style := m.app.getBrightnessStyle()
-	return style.Render(fullContent)
-}
-
-// renderTimeDisplay renders the centered time display without side controls
-func (app *App) renderTimeDisplay() string {
-	// Create status section
-	status := app.getStatusText()
-
-	// Create clock section with ASCII art
-	timeStr := app.config.FormatTime(app.currentTime)
-	asciiTime := app.generateASCIIClock(timeStr)
-
-	// Center the time without side controls
-	lines := strings.Split(asciiTime, "\n")
-	centeredLines := make([]string, len(lines))
-	for i, line := range lines {
-		// Center each line by padding with spaces
-		padding := (93 - len(line)) / 2
-		if padding > 0 {
-			centeredLines[i] = strings.Repeat(" ", padding) + line
-		} else {
-			centeredLines[i] = line
+// Handle custom path input for MP3/Radio URLs
+func (m Model) handleCustomPathInput(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "backspace":
+		if len(m.app.customPathInput) > 0 {
+			m.app.customPathInput = m.app.customPathInput[:len(m.app.customPathInput)-1]
 		}
-	}
-	centeredClock := strings.Join(centeredLines, "\n")
-
-	return fmt.Sprintf("%s\n%s", status, centeredClock)
-}
-
-// renderMenu renders the current menu based on menu state
-func (app *App) renderMenu() string {
-	switch app.menuState {
-	case StateMainMenu:
-		return app.renderMainMenu()
-	case StateAlarm1Menu:
-		return app.renderAlarmMenu(&app.config.Alarm1, "ALARM 1")
-	case StateAlarm2Menu:
-		return app.renderAlarmMenu(&app.config.Alarm2, "ALARM 2")
-	case StateTimeEdit:
-		return app.renderTimeEditMenu()
-	case StateDaysEdit:
-		return app.renderDaysEditMenu()
-	case StateSourceEdit:
-		return app.renderSourceEditMenu()
-	case StateSourceTypeSelect:
-		return app.renderSourceTypeSelectMenu()
-	case StateSourceFileSelect:
-		return app.renderSourceFileSelectMenu()
-	case StateSourceStringInput:
-		return app.renderSourceStringInputMenu()
 	default:
-		return app.renderMainMenu()
+		// Allow most printable characters for paths and URLs
+		if len(key) == 1 && key >= " " && key <= "~" {
+			if len(m.app.customPathInput) < 256 { // Reasonable limit for paths
+				m.app.customPathInput += key
+			}
+		}
 	}
+	return m, nil
 }
 
-// renderMainMenu renders the main menu without ASCII art
-func (app *App) renderMainMenu() string {
-	menuItems := []string{
-		"TIME",
-		"ALARM 1",
-		"ALARM 2",
-		"BRIGHTNESS",
-		"BACKLIGHT",
-		"12/24 HOURS",
-		"SECONDS",
+// Parse and set time with validation
+func (m Model) parseAndSetTime() bool {
+	// Simple validation for HH:MM or HH:MM:SS format
+	parts := strings.Split(m.app.timeInput, ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return false
 	}
 
-	var menuLines []string
-	menuLines = append(menuLines, "==")
+	// Validate hours
+	hour, err := strconv.Atoi(parts[0])
+	if err != nil || hour < 0 || hour > 23 {
+		return false
+	}
 
-	// Create centered menu title with Lipgloss styling
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("12")).
-		Width(89).
-		Align(lipgloss.Center)
+	// Validate minutes
+	minute, err := strconv.Atoi(parts[1])
+	if err != nil || minute < 0 || minute > 59 {
+		return false
+	}
 
-	menuLines = append(menuLines, "==  "+titleStyle.Render("*** MENU ***"))
-	menuLines = append(menuLines, "==")
+	// Default seconds to 00 if not provided
+	second := 0
+	if len(parts) == 3 {
+		second, err = strconv.Atoi(parts[2])
+		if err != nil || second < 0 || second > 59 {
+			return false
+		}
+	}
 
-	for i, item := range menuItems {
-		itemStyle := lipgloss.NewStyle().
-			Width(80).
-			PaddingLeft(2)
+	// Format time string
+	timeStr := fmt.Sprintf("%02d:%02d:%02d", hour, minute, second)
 
-		if i == app.selectedItem {
-			// Highlight selected item with color and arrow
-			itemStyle = itemStyle.
-				Foreground(lipgloss.Color("11")).
-				Bold(true)
-			menuLines = append(menuLines, "==► "+itemStyle.Render(item))
+	// Set the alarm time
+	if m.app.editingAlarm == 1 {
+		m.app.config.Alarm1.Time = timeStr
+	} else {
+		m.app.config.Alarm2.Time = timeStr
+	}
+
+	m.app.timeInput = ""
+	return true
+}
+
+// Render settings menu (simple, no complex styling)
+func (m Model) renderSettings() string {
+	var content strings.Builder
+
+	content.WriteString(m.app.titleStyle.Render("⚙️  SETTINGS"))
+	content.WriteString("\n\n")
+
+	settings := []string{
+		fmt.Sprintf("Font: %s", m.app.config.FontName),
+		fmt.Sprintf("24H Format: %s", getBoolText(m.app.config.Hour24Format)),
+		fmt.Sprintf("Show Seconds: %s", getBoolText(m.app.config.ShowSeconds)),
+		"Back",
+	}
+
+	for i, setting := range settings {
+		if i == m.app.selectedMenu {
+			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s ", setting)))
 		} else {
-			itemStyle = itemStyle.
-				Foreground(lipgloss.Color("7"))
-			menuLines = append(menuLines, "==  "+itemStyle.Render(item))
+			content.WriteString(fmt.Sprintf("   %s", setting))
 		}
+		content.WriteString("\n")
 	}
-	menuLines = append(menuLines, "==")
 
-	return strings.Join(menuLines, "\n")
+	content.WriteString("\n")
+	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  F to change font  •  ENTER to toggle  •  ESC to return"))
+
+	return content.String()
 }
 
-// renderAlarmMenu renders alarm configuration menu
-func (app *App) renderAlarmMenu(alarm *config.Alarm, title string) string {
-	var menuLines []string
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, fmt.Sprintf("==                                  *** %s ***", title))
-	menuLines = append(menuLines, "==")
+// Render alarm edit menu (enhanced with all configuration options)
+func (m Model) renderAlarmEdit() string {
+	var content strings.Builder
 
-	// Menu items with current values
-	items := []string{
-		fmt.Sprintf("ENABLED: %s", getBoolText(alarm.Enabled)),
-		fmt.Sprintf("TIME: %s", alarm.Time),
-		fmt.Sprintf("DAYS: %d/7", app.countActiveDays(alarm.Days)),
-		fmt.Sprintf("SOURCE: %s", strings.ToUpper(string(alarm.Source))),
-		fmt.Sprintf("VOLUME: %d", alarm.Volume),
-		"BACK",
+	title := fmt.Sprintf("🔔 ALARM %d CONFIGURATION", m.app.editingAlarm)
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+
+	var alarm *config.Alarm
+	if m.app.editingAlarm == 1 {
+		alarm = &m.app.config.Alarm1
+	} else {
+		alarm = &m.app.config.Alarm2
 	}
 
-	for i, item := range items {
-		prefix := "==  "
-		if i == app.selectedItem {
-			prefix = "==► "
+	menuOptions := []string{
+		fmt.Sprintf("Enabled: %s", getBoolText(alarm.Enabled)),
+		fmt.Sprintf("Time: %s", alarm.Time[:5]),
+		fmt.Sprintf("Days: %s", m.getActiveDaysString(alarm.Days)),
+		fmt.Sprintf("Volume: %d%%", alarm.Volume),
+		fmt.Sprintf("Source: %s", alarm.Source),
+	}
+
+	// Add source-specific options
+	if alarm.Source == config.SourceBuzzer {
+		toneFile := alarm.AlarmSourceValue
+		if toneFile == "" {
+			toneFile = "pattern1.tone"
 		}
-		menuLines = append(menuLines, prefix+item)
-		menuLines = append(menuLines, "==")
+		menuOptions = append(menuOptions, fmt.Sprintf("Tone: %s", toneFile))
+	} else if alarm.Source == config.SourceMP3 {
+		mp3Path := alarm.AlarmSourceValue
+		if mp3Path == "" {
+			mp3Path = "<not set>"
+		}
+		menuOptions = append(menuOptions, fmt.Sprintf("MP3 Path: %s", mp3Path))
+	} else if alarm.Source == config.SourceRadio {
+		radioURL := alarm.AlarmSourceValue
+		if radioURL == "" {
+			radioURL = "<not set>"
+		}
+		menuOptions = append(menuOptions, fmt.Sprintf("Radio URL: %s", radioURL))
 	}
 
-	return strings.Join(menuLines, "\n")
+	menuOptions = append(menuOptions, "Back")
+
+	for i, option := range menuOptions {
+		if i == m.app.selectedMenu {
+			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s ", option)))
+		} else {
+			content.WriteString(fmt.Sprintf("   %s", option))
+		}
+		content.WriteString("\n")
+	}
+
+	content.WriteString("\n")
+	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  ENTER to edit  •  ESC to return"))
+
+	return content.String()
 }
 
-// renderTimeEditMenu renders the time editing interface
-func (app *App) renderTimeEditMenu() string {
-	var menuLines []string
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==                               *** EDIT TIME ***")
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==")
+// Render simple time input screen
+func (m Model) renderTimeInput() string {
+	var content strings.Builder
 
-	// Get current alarm being edited
-	currentAlarm := app.currentEditingAlarm
+	title := fmt.Sprintf("⏰ SET TIME FOR ALARM %d", m.app.editingAlarm)
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
 
-	if currentAlarm != nil {
-		// Parse current time
-		timeStr := currentAlarm.Time
-		if len(timeStr) < 8 {
-			timeStr = timeStr + ":00" // Add seconds if missing
+	content.WriteString("Enter time in HH:MM format (24-hour)\n")
+	content.WriteString("Examples: 07:30, 14:15, 23:45\n\n")
+
+	inputDisplay := m.app.timeInput
+	if len(inputDisplay) == 0 {
+		inputDisplay = "HH:MM"
+	}
+
+	content.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#00FFFF")).
+		Background(lipgloss.Color("#333333")).
+		Padding(0, 1).
+		Render(fmt.Sprintf(" %s_ ", inputDisplay)))
+
+	content.WriteString("\n\n")
+	content.WriteString(m.app.instructionStyle.Render("Type numbers and :  •  ENTER to save  •  ESC to cancel"))
+
+	return content.String()
+}
+
+// Render day selection screen
+func (m Model) renderAlarmDays() string {
+	var content strings.Builder
+
+	title := fmt.Sprintf("📅 SELECT DAYS FOR ALARM %d", m.app.editingAlarm)
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+
+	var alarm *config.Alarm
+	if m.app.editingAlarm == 1 {
+		alarm = &m.app.config.Alarm1
+	} else {
+		alarm = &m.app.config.Alarm2
+	}
+
+	days := []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
+
+	for i, day := range days {
+		checkbox := "[ ]"
+		if alarm.Days[i] {
+			checkbox = "[X]"
 		}
 
-		// Display editable time format HH:MM:SS with cursor position
-		timeParts := strings.Split(timeStr, ":")
-		if len(timeParts) == 3 {
-			timeDisplay := fmt.Sprintf("    Time: %s:%s:%s", timeParts[0], timeParts[1], timeParts[2])
+		if i == m.app.selectedMenu {
+			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s %s ", checkbox, day)))
+		} else {
+			content.WriteString(fmt.Sprintf("   %s %s", checkbox, day))
+		}
+		content.WriteString("\n")
+	}
 
-			// Add cursor indicator based on editing position
-			cursorPos := app.timeEditPosition % 3
-			switch cursorPos {
-			case 0: // Hours
-				timeDisplay = fmt.Sprintf("    Time: [%s]:%s:%s", timeParts[0], timeParts[1], timeParts[2])
-			case 1: // Minutes
-				timeDisplay = fmt.Sprintf("    Time: %s:[%s]:%s", timeParts[0], timeParts[1], timeParts[2])
-			case 2: // Seconds
-				timeDisplay = fmt.Sprintf("    Time: %s:%s:[%s]", timeParts[0], timeParts[1], timeParts[2])
-			}
+	content.WriteString("\n")
+	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  ENTER to toggle  •  ESC to return"))
 
-			menuLines = append(menuLines, "=="+timeDisplay)
+	return content.String()
+}
+
+// Render volume control screen
+func (m Model) renderAlarmVolume() string {
+	var content strings.Builder
+
+	title := fmt.Sprintf("🔊 VOLUME FOR ALARM %d", m.app.editingAlarm)
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+
+	var alarm *config.Alarm
+	if m.app.editingAlarm == 1 {
+		alarm = &m.app.config.Alarm1
+	} else {
+		alarm = &m.app.config.Alarm2
+	}
+
+	content.WriteString(fmt.Sprintf("Current Volume: %d%%\n\n", alarm.Volume))
+
+	// Volume bar
+	barWidth := 20
+	filledBars := int(float64(alarm.Volume) / 100.0 * float64(barWidth))
+	volumeBar := strings.Repeat("█", filledBars) + strings.Repeat("░", barWidth-filledBars)
+	content.WriteString(fmt.Sprintf("[%s] %d%%\n\n", volumeBar, alarm.Volume))
+
+	content.WriteString(m.app.instructionStyle.Render("←→ to adjust volume  •  ESC to return"))
+
+	return content.String()
+}
+
+// Render tone selection screen
+func (m Model) renderAlarmToneSelect() string {
+	var content strings.Builder
+
+	title := fmt.Sprintf("🎵 SELECT TONE FOR ALARM %d", m.app.editingAlarm)
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+
+	for i, tone := range m.app.availableTones {
+		if i == m.app.selectedMenu {
+			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s ", tone)))
+		} else {
+			content.WriteString(fmt.Sprintf("   %s", tone))
+		}
+		content.WriteString("\n")
+	}
+
+	content.WriteString("\n")
+	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  ENTER to select  •  ESC to return"))
+
+	return content.String()
+}
+
+// Render custom path input screen
+func (m Model) renderAlarmCustomPath() string {
+	var content strings.Builder
+
+	var alarm *config.Alarm
+	if m.app.editingAlarm == 1 {
+		alarm = &m.app.config.Alarm1
+	} else {
+		alarm = &m.app.config.Alarm2
+	}
+
+	var title, prompt, example string
+	if alarm.Source == config.SourceMP3 {
+		title = fmt.Sprintf("🎵 MP3 PATH FOR ALARM %d", m.app.editingAlarm)
+		prompt = "Enter MP3 file or directory path:"
+		example = "Examples: /home/user/music/alarm.mp3, /home/user/music/"
+	} else if alarm.Source == config.SourceRadio {
+		title = fmt.Sprintf("📻 RADIO URL FOR ALARM %d", m.app.editingAlarm)
+		prompt = "Enter radio stream URL:"
+		example = "Examples: http://stream.com/radio.m3u, https://radio.com/stream"
+	}
+
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+	content.WriteString(prompt + "\n")
+	content.WriteString(example + "\n\n")
+
+	inputDisplay := m.app.customPathInput
+	if len(inputDisplay) == 0 {
+		if alarm.Source == config.SourceMP3 {
+			inputDisplay = "/path/to/music/"
+		} else {
+			inputDisplay = "http://radio.url"
 		}
 	}
 
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==    Use LEFT/RIGHT to move cursor, UP/DOWN to change value")
-	menuLines = append(menuLines, "==    Press ENTER to confirm, ESC to cancel")
-	menuLines = append(menuLines, "==")
+	content.WriteString(lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#00FFFF")).
+		Background(lipgloss.Color("#333333")).
+		Padding(0, 1).
+		Render(fmt.Sprintf(" %s_ ", inputDisplay)))
 
-	return strings.Join(menuLines, "\n")
+	content.WriteString("\n\n")
+	content.WriteString(m.app.instructionStyle.Render("Type path/URL  •  ENTER to save  •  ESC to cancel"))
+
+	return content.String()
 }
 
-// renderDaysEditMenu renders the day selection interface
-func (app *App) renderDaysEditMenu() string {
-	var menuLines []string
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==                              *** SELECT DAYS ***")
-	menuLines = append(menuLines, "==")
+// Run starts the application
+func (app *App) Run() error {
+	_, err := app.program.Run()
+	return err
+}
 
-	// Get current alarm being edited
-	currentAlarm := app.currentEditingAlarm
-
-	if currentAlarm != nil {
-		dayNames := []string{"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"}
-
-		for i, dayName := range dayNames {
-			checkbox := "[ ]"
-			if currentAlarm.Days[i] {
-				checkbox = "[X]"
-			}
-
-			prefix := "==  "
-			if i == app.selectedItem {
-				prefix = "==► "
-			}
-
-			menuLines = append(menuLines, fmt.Sprintf("%s%s %s", prefix, checkbox, dayName))
-		}
-
-		menuLines = append(menuLines, "==")
-		menuLines = append(menuLines, "==► BACK")
+// Stop stops the application
+func (app *App) Stop() {
+	if app.program != nil {
+		app.program.Kill()
 	}
-
-	menuLines = append(menuLines, "==")
-	return strings.Join(menuLines, "\n")
 }
 
-// renderSourceEditMenu renders the alarm source configuration interface
-func (app *App) renderSourceEditMenu() string {
-	var menuLines []string
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==                            *** ALARM SOURCE ***")
-	menuLines = append(menuLines, "==")
-
-	// Get current alarm being edited
-	currentAlarm := app.currentEditingAlarm
-
-	if currentAlarm != nil {
-		sources := []string{"BUZZER", "MP3", "RADIO"}
-
-		for i, source := range sources {
-			prefix := "==  "
-			if i == app.selectedItem {
-				prefix = "==► "
-			}
-
-			selected := ""
-			if strings.ToUpper(string(currentAlarm.Source)) == source {
-				selected = " ◄"
-			}
-
-			menuLines = append(menuLines, fmt.Sprintf("%s%s%s", prefix, source, selected))
-		}
-
-		menuLines = append(menuLines, "==")
-
-		// Show current source configuration
-		valueText := currentAlarm.AlarmSourceValue
-		if valueText == "" {
-			valueText = "Not set"
-		}
-
-		switch currentAlarm.Source {
-		case config.SourceBuzzer:
-			menuLines = append(menuLines, fmt.Sprintf("==  Buzzer File: %s", valueText))
-		case config.SourceSoother:
-			menuLines = append(menuLines, fmt.Sprintf("==  Soother File: %s", valueText))
-		case config.SourceMP3:
-			menuLines = append(menuLines, fmt.Sprintf("==  MP3 Directory: %s", valueText))
-		case config.SourceRadio:
-			menuLines = append(menuLines, fmt.Sprintf("==  Radio URL/M3U: %s", valueText))
-		}
-
-		// Add options to configure the selected source
-		menuLines = append(menuLines, "==")
-		menuLines = append(menuLines, "==► CONFIGURE SOURCE")
-
-		menuLines = append(menuLines, "==")
-		menuLines = append(menuLines, "==► BACK")
-	}
-
-	menuLines = append(menuLines, "==")
-	return strings.Join(menuLines, "\n")
-}
-
-// getBoolText returns text representation of boolean
+// Helper functions
 func getBoolText(value bool) string {
 	if value {
 		return "ON"
@@ -505,852 +957,32 @@ func getBoolText(value bool) string {
 	return "OFF"
 }
 
-// getMaxMenuItems returns the number of items in the current menu
-func (app *App) getMaxMenuItems() int {
-	switch app.menuState {
-	case StateMainMenu:
-		return 7 // TIME, ALARM 1, ALARM 2, BRIGHTNESS, BACKLIGHT, 12/24 HOURS, SECONDS
-	case StateAlarm1Menu, StateAlarm2Menu:
-		return 6 // ENABLED, TIME, DAYS, SOURCE, VOLUME, BACK
-	case StateSourceEdit:
-		return 6 // BUZZER, SOOTHER, MP3, RADIO, CONFIGURE SOURCE, BACK
-	case StateSourceTypeSelect:
-		return 5 // BUZZER, SOOTHER, MP3, RADIO, BACK
-	case StateSourceFileSelect:
-		return len(app.availableFiles) + 1 // Files + BACK
-	case StateSourceStringInput:
-		return 2 // SAVE, BACK
-	case StateDaysEdit:
-		return 8 // 7 days + BACK
-	default:
-		return 7
-	}
-}
-
-// Run starts the TUI application
-func (app *App) Run() error {
-	_, err := app.program.Run()
-	return err
-}
-
-// Stop stops the TUI application
-func (app *App) Stop() {
-	app.isActive = false
-	if app.program != nil {
-		app.program.Quit()
-	}
-}
-
-// getStatusText generates the status area text
-func (app *App) getStatusText() string {
-	alarm1Status := "OFF"
-	if app.config.Alarm1.Enabled {
-		alarm1Status = "ON"
-	}
-
-	alarm2Status := "OFF"
-	if app.config.Alarm2.Enabled {
-		alarm2Status = "ON"
-	}
-
-	// Format days for display (show count of active days)
-	alarm1Days := app.countActiveDays(app.config.Alarm1.Days)
-	alarm2Days := app.countActiveDays(app.config.Alarm2.Days)
-
-	statusText := fmt.Sprintf(`==                                                                                Alarms: %s%s
-==
-==  Alarm 1: %s (%d/7)     %s
-==  Alarm 2: %s (%d/7)     %s`,
-		getBoolIcon(app.config.Alarm1.Enabled),
-		getBoolIcon(app.config.Alarm2.Enabled),
-		app.config.Alarm1.Time, alarm1Days, alarm1Status,
-		app.config.Alarm2.Time, alarm2Days, alarm2Status)
-
-	return statusText
-}
-
-// generateASCIIClock creates ASCII art for the current time using simple large digits
-func (app *App) generateASCIIClock(timeStr string) string {
-	// Create large ASCII digits for time display
-	digits := map[rune][]string{
-		'0': {
-			"  ███  ",
-			" █   █ ",
-			" █   █ ",
-			" █   █ ",
-			" █   █ ",
-			"  ███  ",
-		},
-		'1': {
-			"   █   ",
-			"  ██   ",
-			"   █   ",
-			"   █   ",
-			"   █   ",
-			" █████ ",
-		},
-		'2': {
-			" █████ ",
-			"     █ ",
-			" █████ ",
-			" █     ",
-			" █     ",
-			" █████ ",
-		},
-		'3': {
-			" █████ ",
-			"     █ ",
-			" █████ ",
-			"     █ ",
-			"     █ ",
-			" █████ ",
-		},
-		'4': {
-			" █   █ ",
-			" █   █ ",
-			" █████ ",
-			"     █ ",
-			"     █ ",
-			"     █ ",
-		},
-		'5': {
-			" █████ ",
-			" █     ",
-			" █████ ",
-			"     █ ",
-			"     █ ",
-			" █████ ",
-		},
-		'6': {
-			" █████ ",
-			" █     ",
-			" █████ ",
-			" █   █ ",
-			" █   █ ",
-			" █████ ",
-		},
-		'7': {
-			" █████ ",
-			"     █ ",
-			"    █  ",
-			"   █   ",
-			"  █    ",
-			" █     ",
-		},
-		'8': {
-			" █████ ",
-			" █   █ ",
-			" █████ ",
-			" █   █ ",
-			" █   █ ",
-			" █████ ",
-		},
-		'9': {
-			" █████ ",
-			" █   █ ",
-			" █████ ",
-			"     █ ",
-			"     █ ",
-			" █████ ",
-		},
-		':': {
-			"       ",
-			"  ██   ",
-			"  ██   ",
-			"       ",
-			"  ██   ",
-			"  ██   ",
-		},
-		' ': {
-			"       ",
-			"       ",
-			"       ",
-			"       ",
-			"       ",
-			"       ",
-		},
-	}
-
-	// Split time string into characters
-	chars := []rune(timeStr)
-	lines := make([]string, 6)
-
-	// Build each line of the ASCII art
-	for lineIndex := 0; lineIndex < 6; lineIndex++ {
-		var line strings.Builder
-		for _, char := range chars {
-			if digitLines, exists := digits[char]; exists {
-				line.WriteString(digitLines[lineIndex])
-			} else {
-				// Default to space for unknown characters
-				line.WriteString("       ")
-			}
-		}
-		lines[lineIndex] = line.String()
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-// addSideControls adds UP/DOWN control text to the right side
-func (app *App) addSideControls(clockText string) string {
-	lines := strings.Split(clockText, "\n")
-	if len(lines) >= 6 {
-		// Add UP/DOWN text to the right side of the 4th line (index 3)
-		lines[3] += "                    UP / DOWN"
-	}
-	return strings.Join(lines, "\n")
-}
-
-// countActiveDays counts how many days are enabled for an alarm
-func (app *App) countActiveDays(days []bool) int {
-	count := 0
-	for _, day := range days {
-		if day {
-			count++
-		}
-	}
-	return count
-}
-
-// getBoolIcon returns an icon character for boolean status
-func getBoolIcon(enabled bool) string {
-	if enabled {
-		return "●"
-	}
-	return "○"
-}
-
-// SetBrightness adjusts display brightness
-func (app *App) SetBrightness(level int) {
-	if level < 1 {
-		level = 1
-	}
-	if level > 10 {
-		level = 10
-	}
-	app.brightness = level
-	app.config.Brightness = level
-}
-
-// getBrightnessStyle returns a lipgloss style based on brightness level
-func (app *App) getBrightnessStyle() lipgloss.Style {
-	var color lipgloss.Color
-	switch {
-	case app.brightness <= 2:
-		color = lipgloss.Color("#444444")
-	case app.brightness <= 4:
-		color = lipgloss.Color("#666666")
-	case app.brightness <= 6:
-		color = lipgloss.Color("#888888")
-	case app.brightness <= 8:
-		color = lipgloss.Color("#AAAAAA")
-	default:
-		color = lipgloss.Color("#FFFFFF")
-	}
-
-	return lipgloss.NewStyle().
-		Foreground(color).
-		Background(lipgloss.Color("#000000"))
-}
-
-// GetProgram returns the underlying bubbletea program for input handling
+// GetProgram returns the tea program for compatibility
 func (app *App) GetProgram() *tea.Program {
 	return app.program
 }
 
-// Handler methods for input events
-func (m *Model) handlePowerButton() {
-	// Basic power/sleep functionality - can be expanded
-}
+// discoverToneFiles scans for available .tone files in the buzzer directory
+func discoverToneFiles() []string {
+	toneDir := "include/sounds/buzzer"
+	var tones []string
 
-func (m *Model) handleSnoozeButton() {
-	// Basic snooze functionality - can be expanded
-}
-
-func (m *Model) handleMenuButton() {
-	// Toggle between time display and menu
-	m.app.inMenu = !m.app.inMenu
-	if m.app.inMenu {
-		m.app.menuState = StateMainMenu
-		m.app.selectedItem = 0
-	} else {
-		m.app.menuState = StateTime
-	}
-}
-
-func (m *Model) handleUpButton() {
-	if m.app.inMenu {
-		switch m.app.menuState {
-		case StateTimeEdit:
-			// Increase time value at current cursor position
-			m.handleTimeValueChange(1)
-		case StateSourceFileSelect:
-			// Navigate up in file selection and update selectedFileIndex
-			maxItems := m.app.getMaxMenuItems()
-			if m.app.selectedItem > 0 {
-				m.app.selectedItem--
-				if m.app.selectedItem < len(m.app.availableFiles) {
-					m.app.selectedFileIndex = m.app.selectedItem
-				}
-			} else {
-				m.app.selectedItem = maxItems - 1
-				if m.app.selectedItem < len(m.app.availableFiles) {
-					m.app.selectedFileIndex = m.app.selectedItem
-				}
-			}
-		case StateDaysEdit, StateSourceEdit, StateSourceTypeSelect, StateSourceStringInput:
-			// Navigate up in editing menus
-			maxItems := m.app.getMaxMenuItems()
-			if m.app.selectedItem > 0 {
-				m.app.selectedItem--
-			} else {
-				m.app.selectedItem = maxItems - 1
-			}
-		default:
-			// Navigate up in menu
-			maxItems := m.app.getMaxMenuItems()
-			if m.app.selectedItem > 0 {
-				m.app.selectedItem--
-			} else {
-				// Wrap to bottom
-				m.app.selectedItem = maxItems - 1
-			}
-		}
-	} else {
-		// Brightness up when not in menu
-		if m.app.brightness < 10 {
-			m.app.SetBrightness(m.app.brightness + 1)
-		}
-	}
-}
-
-func (m *Model) handleDownButton() {
-	if m.app.inMenu {
-		// Navigate down in menu
-		maxItems := m.app.getMaxMenuItems()
-		if m.app.selectedItem < maxItems-1 {
-			m.app.selectedItem++
-		} else {
-			// Wrap to top
-			m.app.selectedItem = 0
-		}
-	} else {
-		// Brightness down when not in menu
-		if m.app.brightness > 1 {
-			m.app.SetBrightness(m.app.brightness - 1)
-		}
-	}
-}
-
-func (m *Model) handleSelectButton() {
-	if !m.app.inMenu {
-		return
-	}
-
-	switch m.app.menuState {
-	case StateMainMenu:
-		m.handleMainMenuSelect()
-	case StateAlarm1Menu:
-		m.handleAlarmMenuSelect(&m.app.config.Alarm1)
-	case StateAlarm2Menu:
-		m.handleAlarmMenuSelect(&m.app.config.Alarm2)
-	case StateSourceEdit:
-		m.handleSourceEditSelect()
-	case StateSourceTypeSelect:
-		m.handleSourceTypeSelect()
-	case StateSourceFileSelect:
-		m.handleSourceFileSelect()
-	case StateSourceStringInput:
-		m.handleSourceStringInputSelect()
-	case StateDaysEdit:
-		m.handleDaysEditSelect()
-	}
-}
-
-func (m *Model) handleMainMenuSelect() {
-	switch m.app.selectedItem {
-	case int(MenuItemTime):
-		// Return to time display
-		m.app.inMenu = false
-		m.app.menuState = StateTime
-	case int(MenuItemAlarm1):
-		// Open alarm 1 sub-menu
-		m.app.menuState = StateAlarm1Menu
-		m.app.selectedItem = 0
-	case int(MenuItemAlarm2):
-		// Open alarm 2 sub-menu
-		m.app.menuState = StateAlarm2Menu
-		m.app.selectedItem = 0
-	case int(MenuItemBrightness):
-		// Cycle brightness (1-10)
-		newLevel := m.app.brightness + 1
-		if newLevel > 10 {
-			newLevel = 1
-		}
-		m.app.SetBrightness(newLevel)
-	case int(MenuItemBacklight):
-		// Cycle backlight (1-10)
-		newLevel := m.app.config.Backlight + 1
-		if newLevel > 10 {
-			newLevel = 1
-		}
-		m.app.config.Backlight = newLevel
-	case int(MenuItemTimeFormat):
-		// Toggle 12/24 hour format
-		m.app.config.Hour24Format = !m.app.config.Hour24Format
-	case int(MenuItemSeconds):
-		// Toggle seconds display
-		m.app.config.ShowSeconds = !m.app.config.ShowSeconds
-	}
-}
-
-func (m *Model) handleAlarmMenuSelect(alarm *config.Alarm) {
-	switch m.app.selectedItem {
-	case int(AlarmMenuEnabled):
-		// Toggle alarm enabled state
-		alarm.Enabled = !alarm.Enabled
-	case int(AlarmMenuTime):
-		// Enter time editing mode
-		m.app.previousMenuState = m.app.menuState
-		m.app.menuState = StateTimeEdit
-		m.app.timeEditPosition = 0
-		m.app.currentEditingAlarm = alarm
-		m.app.selectedItem = 0
-	case int(AlarmMenuDays):
-		// Enter days editing mode
-		m.app.previousMenuState = m.app.menuState
-		m.app.menuState = StateDaysEdit
-		m.app.currentEditingAlarm = alarm
-		m.app.selectedItem = 0
-	case int(AlarmMenuSource):
-		// Enter source editing mode
-		m.app.previousMenuState = m.app.menuState
-		m.app.menuState = StateSourceEdit
-		m.app.currentEditingAlarm = alarm
-		m.app.selectedItem = 0
-	case int(AlarmMenuVolume):
-		// Cycle volume (10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
-		newVolume := alarm.Volume + 10
-		if newVolume > 100 {
-			newVolume = 10
-		}
-		alarm.Volume = newVolume
-	case int(AlarmMenuBack):
-		// Return to main menu
-		m.app.menuState = StateMainMenu
-		m.app.selectedItem = 0
-	}
-}
-
-func (m *Model) handleDimmerButton() {
-	// Cycle through brightness levels
-	newLevel := m.app.brightness + 1
-	if newLevel > 10 {
-		newLevel = 1
-	}
-	m.app.SetBrightness(newLevel)
-}
-
-func (m *Model) handleSleepTimerHold() {
-	// Basic sleep timer functionality - can be expanded
-}
-
-func (m *Model) handleLeftButton() {
-	if m.app.menuState == StateTimeEdit {
-		// Move cursor left in time editing
-		if m.app.timeEditPosition > 0 {
-			m.app.timeEditPosition--
-		}
-	}
-}
-
-func (m *Model) handleRightButton() {
-	if m.app.menuState == StateTimeEdit {
-		// Move cursor right in time editing
-		if m.app.timeEditPosition < 2 {
-			m.app.timeEditPosition++
-		}
-	}
-}
-
-func (m *Model) handleEscapeButton() {
-	// Cancel editing and return to previous menu
-	switch m.app.menuState {
-	case StateTimeEdit, StateDaysEdit, StateSourceEdit:
-		m.app.menuState = m.app.previousMenuState
-		m.app.selectedItem = 0
-		m.app.currentEditingAlarm = nil
-	case StateSourceTypeSelect, StateSourceFileSelect:
-		m.app.menuState = StateSourceEdit
-		m.app.selectedItem = 0
-		m.app.availableFiles = nil
-	case StateSourceStringInput:
-		m.app.menuState = StateSourceEdit
-		m.app.selectedItem = 0
-		m.app.stringInput = ""
-		m.app.stringEditMode = false
-	case StateMainMenu:
-		// Exit menu mode
-		m.app.inMenu = false
-		m.app.menuState = StateTime
-	}
-}
-
-func (m *Model) handleTimeValueChange(direction int) {
-	if m.app.currentEditingAlarm == nil {
-		return
-	}
-
-	// Parse current time
-	timeStr := m.app.currentEditingAlarm.Time
-	if len(timeStr) < 8 {
-		timeStr = timeStr + ":00"
-	}
-
-	timeParts := strings.Split(timeStr, ":")
-	if len(timeParts) != 3 {
-		return
-	}
-
-	// Convert to integers
-	hours, _ := strconv.Atoi(timeParts[0])
-	minutes, _ := strconv.Atoi(timeParts[1])
-	seconds, _ := strconv.Atoi(timeParts[2])
-
-	// Modify based on cursor position
-	switch m.app.timeEditPosition {
-	case 0: // Hours
-		hours += direction
-		if hours < 0 {
-			hours = 23
-		} else if hours > 23 {
-			hours = 0
-		}
-	case 1: // Minutes
-		minutes += direction
-		if minutes < 0 {
-			minutes = 59
-		} else if minutes > 59 {
-			minutes = 0
-		}
-	case 2: // Seconds
-		seconds += direction
-		if seconds < 0 {
-			seconds = 59
-		} else if seconds > 59 {
-			seconds = 0
-		}
-	}
-
-	// Update the alarm time
-	m.app.currentEditingAlarm.Time = fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
-}
-
-// getAvailableFiles returns a list of available files for the given source type
-func (app *App) getAvailableFiles(source config.AlarmSource) []string {
-	var files []string
-	var searchDir string
-
-	switch source {
-	case config.SourceBuzzer:
-		searchDir = "include/sounds/buzzer"
-	case config.SourceSoother:
-		searchDir = "include/sounds/soother"
-	default:
-		return files
-	}
-
-	matches, err := filepath.Glob(filepath.Join(searchDir, "*.tone"))
+	files, err := os.ReadDir(toneDir)
 	if err != nil {
-		return files
+		// Return default if directory doesn't exist
+		return []string{"pattern1.tone", "pattern2.tone", "pattern3.tone", "pattern4.tone", "pattern5.tone"}
 	}
 
-	sort.Strings(matches)
-	return matches
-}
-
-// renderSourceTypeSelectMenu renders the source type selection interface
-func (app *App) renderSourceTypeSelectMenu() string {
-	var menuLines []string
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==                        *** SELECT ALARM SOURCE TYPE ***")
-	menuLines = append(menuLines, "==")
-
-	currentAlarm := app.currentEditingAlarm
-	if currentAlarm != nil {
-		sources := []config.AlarmSource{config.SourceBuzzer, config.SourceSoother, config.SourceMP3, config.SourceRadio}
-		sourceNames := []string{"BUZZER", "SOOTHER", "MP3", "RADIO"}
-
-		for i, source := range sources {
-			prefix := "==  "
-			if i == app.selectedItem {
-				prefix = "==► "
-			}
-
-			selected := ""
-			if currentAlarm.Source == source {
-				selected = " ◄"
-			}
-
-			menuLines = append(menuLines, fmt.Sprintf("%s%s%s", prefix, sourceNames[i], selected))
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".tone") {
+			tones = append(tones, file.Name())
 		}
-
-		menuLines = append(menuLines, "==")
-		menuLines = append(menuLines, "==► BACK")
 	}
 
-	menuLines = append(menuLines, "==")
-	return strings.Join(menuLines, "\n")
-}
-
-// renderSourceFileSelectMenu renders the file selection interface for buzzer/soother
-func (app *App) renderSourceFileSelectMenu() string {
-	var menuLines []string
-	menuLines = append(menuLines, "==")
-
-	currentAlarm := app.currentEditingAlarm
-	if currentAlarm == nil {
-		return strings.Join(menuLines, "\n")
+	if len(tones) == 0 {
+		// Return default if no files found
+		return []string{"pattern1.tone", "pattern2.tone", "pattern3.tone", "pattern4.tone", "pattern5.tone"}
 	}
 
-	sourceType := strings.ToUpper(string(currentAlarm.Source))
-	menuLines = append(menuLines, fmt.Sprintf("==                        *** SELECT %s FILE ***", sourceType))
-	menuLines = append(menuLines, "==")
-
-	if len(app.availableFiles) == 0 {
-		app.availableFiles = app.getAvailableFiles(currentAlarm.Source)
-		app.selectedFileIndex = 0
-	}
-
-	for i, filePath := range app.availableFiles {
-		fileName := filepath.Base(filePath)
-		prefix := "==  "
-		if i == app.selectedFileIndex {
-			prefix = "==► "
-		}
-
-		selected := ""
-		if filePath == currentAlarm.AlarmSourceValue {
-			selected = " ◄"
-		}
-
-		// Add play button indicator
-		playButton := ""
-		if i == app.selectedFileIndex {
-			playButton = " [PLAY]"
-		}
-
-		menuLines = append(menuLines, fmt.Sprintf("%s%s%s%s", prefix, fileName, selected, playButton))
-	}
-
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==► BACK")
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==  Use UP/DOWN to browse, ENTER to select, SPACE to play")
-
-	return strings.Join(menuLines, "\n")
-}
-
-// renderSourceStringInputMenu renders the string input interface for mp3/radio
-func (app *App) renderSourceStringInputMenu() string {
-	var menuLines []string
-	menuLines = append(menuLines, "==")
-
-	currentAlarm := app.currentEditingAlarm
-	if currentAlarm == nil {
-		return strings.Join(menuLines, "\n")
-	}
-
-	sourceType := strings.ToUpper(string(currentAlarm.Source))
-	if currentAlarm.Source == config.SourceMP3 {
-		menuLines = append(menuLines, "==                    *** ENTER MP3 DIRECTORY PATH ***")
-	} else {
-		menuLines = append(menuLines, "==                 *** ENTER RADIO URL OR M3U PATH ***")
-	}
-	menuLines = append(menuLines, "==")
-
-	inputValue := app.stringInput
-	if inputValue == "" {
-		inputValue = currentAlarm.AlarmSourceValue
-	}
-
-	cursor := ""
-	if app.stringEditMode {
-		cursor = "_"
-	}
-
-	menuLines = append(menuLines, fmt.Sprintf("==  %s: %s%s", sourceType, inputValue, cursor))
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==► SAVE")
-	menuLines = append(menuLines, "==► BACK")
-	menuLines = append(menuLines, "==")
-	menuLines = append(menuLines, "==  Type path and press ENTER to save, ESC to cancel")
-
-	return strings.Join(menuLines, "\n")
-}
-
-// handleSourceEditSelect handles selection in the source edit menu
-func (m *Model) handleSourceEditSelect() {
-	currentAlarm := m.app.currentEditingAlarm
-	if currentAlarm == nil {
-		return
-	}
-
-	sources := []config.AlarmSource{config.SourceBuzzer, config.SourceSoother, config.SourceMP3, config.SourceRadio}
-
-	if m.app.selectedItem < len(sources) {
-		// Source type selection
-		currentAlarm.Source = sources[m.app.selectedItem]
-		currentAlarm.AlarmSourceValue = "" // Reset value when changing type
-	} else if m.app.selectedItem == len(sources) {
-		// CONFIGURE SOURCE option
-		switch currentAlarm.Source {
-		case config.SourceBuzzer, config.SourceSoother:
-			m.app.previousMenuState = m.app.menuState
-			m.app.menuState = StateSourceFileSelect
-			m.app.availableFiles = m.app.getAvailableFiles(currentAlarm.Source)
-			m.app.selectedFileIndex = 0
-			m.app.selectedItem = 0
-		case config.SourceMP3, config.SourceRadio:
-			m.app.previousMenuState = m.app.menuState
-			m.app.menuState = StateSourceStringInput
-			m.app.stringInput = currentAlarm.AlarmSourceValue
-			m.app.stringEditMode = false
-			m.app.selectedItem = 0
-		}
-	} else {
-		// BACK option
-		m.app.menuState = m.app.previousMenuState
-		m.app.selectedItem = 0
-		m.app.currentEditingAlarm = nil
-	}
-}
-
-// handleSourceTypeSelect handles selection in the source type selection menu
-func (m *Model) handleSourceTypeSelect() {
-	currentAlarm := m.app.currentEditingAlarm
-	if currentAlarm == nil {
-		return
-	}
-
-	sources := []config.AlarmSource{config.SourceBuzzer, config.SourceSoother, config.SourceMP3, config.SourceRadio}
-
-	if m.app.selectedItem < len(sources) {
-		// Set the source type
-		currentAlarm.Source = sources[m.app.selectedItem]
-		currentAlarm.AlarmSourceValue = "" // Reset value when changing type
-
-		// Automatically proceed to configuration
-		switch currentAlarm.Source {
-		case config.SourceBuzzer, config.SourceSoother:
-			m.app.menuState = StateSourceFileSelect
-			m.app.availableFiles = m.app.getAvailableFiles(currentAlarm.Source)
-			m.app.selectedFileIndex = 0
-		case config.SourceMP3, config.SourceRadio:
-			m.app.menuState = StateSourceStringInput
-			m.app.stringInput = ""
-			m.app.stringEditMode = true
-		}
-		m.app.selectedItem = 0
-	} else {
-		// BACK option
-		m.app.menuState = m.app.previousMenuState
-		m.app.selectedItem = 0
-	}
-}
-
-// handleSourceFileSelect handles selection in the file selection menu
-func (m *Model) handleSourceFileSelect() {
-	currentAlarm := m.app.currentEditingAlarm
-	if currentAlarm == nil {
-		return
-	}
-
-	if m.app.selectedItem < len(m.app.availableFiles) {
-		// File selection - set the selected file
-		selectedFile := m.app.availableFiles[m.app.selectedItem]
-		currentAlarm.AlarmSourceValue = selectedFile
-		m.app.selectedFileIndex = m.app.selectedItem
-
-		// Return to source edit menu
-		m.app.menuState = StateSourceEdit
-		m.app.selectedItem = 0
-		m.app.availableFiles = nil
-	} else {
-		// BACK option
-		m.app.menuState = StateSourceEdit
-		m.app.selectedItem = 0
-		m.app.availableFiles = nil
-	}
-}
-
-// handleSourceStringInputSelect handles selection in the string input menu
-func (m *Model) handleSourceStringInputSelect() {
-	currentAlarm := m.app.currentEditingAlarm
-	if currentAlarm == nil {
-		return
-	}
-
-	switch m.app.selectedItem {
-	case 0: // SAVE
-		if m.app.stringInput != "" {
-			currentAlarm.AlarmSourceValue = m.app.stringInput
-		}
-		m.app.menuState = StateSourceEdit
-		m.app.selectedItem = 0
-		m.app.stringInput = ""
-		m.app.stringEditMode = false
-	case 1: // BACK
-		m.app.menuState = StateSourceEdit
-		m.app.selectedItem = 0
-		m.app.stringInput = ""
-		m.app.stringEditMode = false
-	}
-}
-
-// handleDaysEditSelect handles selection in the days edit menu
-func (m *Model) handleDaysEditSelect() {
-	currentAlarm := m.app.currentEditingAlarm
-	if currentAlarm == nil {
-		return
-	}
-
-	if m.app.selectedItem < 7 {
-		// Toggle day selection
-		currentAlarm.Days[m.app.selectedItem] = !currentAlarm.Days[m.app.selectedItem]
-	} else {
-		// BACK option
-		m.app.menuState = m.app.previousMenuState
-		m.app.selectedItem = 0
-		m.app.currentEditingAlarm = nil
-	}
-}
-
-// handlePlayButton handles playing the currently selected file
-func (m *Model) handlePlayButton() {
-	if m.app.menuState != StateSourceFileSelect || m.app.currentEditingAlarm == nil {
-		return
-	}
-
-	if m.app.selectedItem < len(m.app.availableFiles) {
-		selectedFile := m.app.availableFiles[m.app.selectedItem]
-
-		// Create a temporary alarm config for preview
-		tempAlarm := *m.app.currentEditingAlarm
-		tempAlarm.AlarmSourceValue = selectedFile
-		tempAlarm.Volume = 30 // Lower volume for preview
-
-		// Stop any current playback and play the selected file
-		m.audioPlayer.Stop()
-		if err := m.audioPlayer.PlayAlarm(&tempAlarm); err != nil {
-			// Ignore errors for preview - files might not be compatible
-		}
-
-		// Stop after 2 seconds for preview
-		go func() {
-			time.Sleep(2 * time.Second)
-			m.audioPlayer.Stop()
-		}()
-	}
+	return tones
 }

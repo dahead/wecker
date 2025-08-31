@@ -33,10 +33,11 @@ type Alarm struct {
 // Config represents the application configuration
 type Config struct {
 	// Display settings
-	Hour24Format bool `json:"hour_24_format"`
-	ShowSeconds  bool `json:"show_seconds"` // Show seconds in time display
-	Brightness   int  `json:"brightness"`   // 1-10
-	Backlight    int  `json:"backlight"`    // 1-10
+	Hour24Format bool   `json:"hour_24_format"`
+	ShowSeconds  bool   `json:"show_seconds"` // Show seconds in time display
+	FontName     string `json:"font_name"`    // Font name for ASCII art display
+	Brightness   int    `json:"brightness"`   // 1-10
+	Backlight    int    `json:"backlight"`    // 1-10
 
 	// Alarms
 	Alarm1 Alarm `json:"alarm1"`
@@ -57,6 +58,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Hour24Format: true,
 		ShowSeconds:  true,
+		FontName:     "big",
 		Brightness:   5,
 		Backlight:    5,
 		Alarm1: Alarm{

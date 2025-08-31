@@ -1,14 +1,15 @@
 {
   "hour_24_format": true,
-  "show_seconds": false,
+  "show_seconds": true,
+  "font_name": "doh",
   "brightness": 6,
   "backlight": 5,
   "alarm1": {
     "id": 1,
-    "enabled": false,
-    "time": "07:00",
+    "enabled": true,
+    "time": "21:18:00",
     "days": [
-      false,
+      true,
       true,
       true,
       true,
@@ -18,10 +19,7 @@
     ],
     "source": "buzzer",
     "volume": 50,
-    "buzzer_type": 1,
-    "mp3_path": "",
-    "radio_url": "",
-    "soother_type": 0,
+    "alarm_source_value": "include/sounds/buzzer/pattern3.tone",
     "volume_ramp": true
   },
   "alarm2": {
@@ -39,16 +37,12 @@
     ],
     "source": "buzzer",
     "volume": 50,
-    "buzzer_type": 2,
-    "mp3_path": "",
-    "radio_url": "",
-    "soother_type": 0,
+    "alarm_source_value": "",
     "volume_ramp": true
   },
   "snooze_minutes": 10,
   "sleep_minutes": 60,
   "player_command": "mpv",
   "last_radio_url": "",
-  "last_mp3_path": "",
-  "last_soother_type": 1
+  "last_mp3_path": ""
 }
