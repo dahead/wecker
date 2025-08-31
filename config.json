@@ -1,7 +1,7 @@
 {
   "hour_24_format": true,
   "show_seconds": false,
-  "font_name": "doom",
+  "font_name": "colossal",
   "brightness": 6,
   "backlight": 5,
   "alarm1": {
@@ -41,9 +41,9 @@
     "volume_ramp": true
   },
   "sleep_timer": {
-    "duration": 5,
+    "duration": 10,
     "source": "soother",
-    "volume": 50,
+    "volume": 60,
     "alarm_source_value": "include/sounds/soother/noise5.tone"
   },
   "snooze_minutes": 10,
