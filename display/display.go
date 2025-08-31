@@ -365,12 +365,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleDown()
 
 		case "left", "h":
+			// Don't handle navigation if we're in a path input state
+			if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
+				return m.handleCustomPathInput(msg.String())
+			}
 			return m.handleLeft()
 
 		case "right", "l":
+			// Don't handle navigation if we're in a path input state
+			if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
+				return m.handleCustomPathInput(msg.String())
+			}
 			return m.handleRight()
 
 		case "t":
+			// Don't handle time input shortcut if we're in a path input state
+			if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
+				return m.handleCustomPathInput(msg.String())
+			}
 			// Simple time editing - press T to enter time input
 			if m.app.state == StateAlarmEdit {
 				m.app.state = StateTimeInput
@@ -386,6 +398,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "e":
+			// Don't handle alarm toggle if we're in a path input state
+			if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
+				return m.handleCustomPathInput(msg.String())
+			}
 			// Toggle alarm enabled/disabled
 			if m.app.state == StateAlarmEdit {
 				if m.app.editingAlarm == 1 {
@@ -862,6 +878,7 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// this seems very unnecessary
 // Enhanced navigation handlers for all states
 func (m Model) handleUp() (tea.Model, tea.Cmd) {
 	switch m.app.state {
@@ -1407,13 +1424,7 @@ func (m Model) renderAlarmCustomPath() string {
 	content.WriteString(example + "\n\n")
 
 	inputDisplay := m.app.customPathInput
-	if len(inputDisplay) == 0 {
-		if alarm.Source == config.SourceMP3 {
-			inputDisplay = "/path/to/music/"
-		} else {
-			inputDisplay = "http://radio.url"
-		}
-	}
+	// Show actual input or empty field - no misleading placeholders
 
 	content.WriteString(lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#00FFFF")).
@@ -1523,13 +1534,7 @@ func (m Model) renderSleepCustomPath() string {
 	content.WriteString(example + "\n\n")
 
 	inputDisplay := m.app.customPathInput
-	if len(inputDisplay) == 0 {
-		if sleepTimer.Source == config.SourceMP3 {
-			inputDisplay = "/path/to/music/"
-		} else {
-			inputDisplay = "http://radio.url"
-		}
-	}
+	// Show actual input or empty field - no misleading placeholders
 
 	content.WriteString(lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#00FFFF")).
@@ -1554,9 +1559,7 @@ func (m Model) renderBuzzerDirInput() string {
 	content.WriteString("Examples: /home/user/sounds/buzzer, include/sounds/buzzer\n\n")
 
 	inputDisplay := m.app.customPathInput
-	if len(inputDisplay) == 0 {
-		inputDisplay = "/path/to/buzzer/sounds"
-	}
+	// Show actual input or empty field - no misleading placeholders
 
 	content.WriteString(lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#00FFFF")).
@@ -1581,9 +1584,7 @@ func (m Model) renderSootherDirInput() string {
 	content.WriteString("Examples: /home/user/sounds/soother, include/sounds/soother\n\n")
 
 	inputDisplay := m.app.customPathInput
-	if len(inputDisplay) == 0 {
-		inputDisplay = "/path/to/soother/sounds"
-	}
+	// Show actual input or empty field - no misleading placeholders
 
 	content.WriteString(lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#00FFFF")).

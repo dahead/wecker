@@ -41,15 +41,15 @@
     "volume_ramp": true
   },
   "sleep_timer": {
-    "duration": 15,
+    "duration": 10,
     "source": "soother",
-    "volume": 100,
-    "alarm_source_value": "include/sounds/soother/noise4.tone"
+    "volume": 70,
+    "alarm_source_value": "include/sounds/soother/whitenoise_focus3.tone"
   },
   "snooze_minutes": 10,
   "player_command": "mpv",
   "last_radio_url": "",
-  "last_mp3_path": "",
+  "last_mp3_path": "/home/dh/Music/YOUNA - Melodic Techno \u0026 Progressive House DJ Mix 09 @ Dubai [_isajPgmbOY].mp3",
   "buzzer_dir": "include/sounds/buzzer",
   "soother_dir": "include/sounds/soother"
 }
