@@ -366,57 +366,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "left", "h":
 			// Don't handle navigation if we're in a path input state
-			if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
+			if m.isInPathInputState() {
 				return m.handleCustomPathInput(msg.String())
 			}
 			return m.handleLeft()
 
 		case "right", "l":
 			// Don't handle navigation if we're in a path input state
-			if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
+			if m.isInPathInputState() {
 				return m.handleCustomPathInput(msg.String())
 			}
 			return m.handleRight()
 
 		case "t":
 			// Don't handle time input shortcut if we're in a path input state
-			if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
+			if m.isInPathInputState() {
 				return m.handleCustomPathInput(msg.String())
 			}
 			// Simple time editing - press T to enter time input
 			if m.app.state == StateAlarmEdit {
 				m.app.state = StateTimeInput
 				// Pre-fill with current alarm time
-				var alarm *config.Alarm
-				if m.app.editingAlarm == 1 {
-					alarm = &m.app.config.Alarm1
-				} else {
-					alarm = &m.app.config.Alarm2
-				}
+				alarm := m.getCurrentAlarm()
 				// Extract HH:MM from the time string (remove seconds if present)
 				m.app.timeInput = alarm.Time[:5]
 			}
 
 		case "e":
 			// Don't handle alarm toggle if we're in a path input state
-			if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
+			if m.isInPathInputState() {
 				return m.handleCustomPathInput(msg.String())
 			}
 			// Toggle alarm enabled/disabled
 			if m.app.state == StateAlarmEdit {
-				if m.app.editingAlarm == 1 {
-					m.app.config.Alarm1.Enabled = !m.app.config.Alarm1.Enabled
-				} else {
-					m.app.config.Alarm2.Enabled = !m.app.config.Alarm2.Enabled
-				}
-				// Save immediately when toggling alarm
-				m.app.config.Save()
+				m.toggleCurrentAlarm()
 			}
 
 		default:
 			if m.app.state == StateTimeInput {
 				return m.handleTimeInput(msg.String())
-			} else if m.app.state == StateAlarmCustomPath || m.app.state == StateSleepCustomPath || m.app.state == StateBuzzerDirInput || m.app.state == StateSootherDirInput {
+			} else if m.isInPathInputState() {
 				return m.handleCustomPathInput(msg.String())
 			}
 		}
@@ -878,91 +867,153 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// this seems very unnecessary
-// Enhanced navigation handlers for all states
-func (m Model) handleUp() (tea.Model, tea.Cmd) {
-	switch m.app.state {
-	case StateSettings:
-		if m.app.selectedMenu > 0 {
-			m.app.selectedMenu--
-		}
-	case StateAlarmEdit:
-		if m.app.selectedMenu > 0 {
-			m.app.selectedMenu--
-		}
-	case StateSleepEdit:
-		if m.app.selectedMenu > 0 {
-			m.app.selectedMenu--
-		}
-	case StateAlarmDays:
-		if m.app.selectedMenu > 0 {
-			m.app.selectedMenu--
-		}
-	case StateAlarmToneSelect:
-		if m.app.selectedMenu > 0 {
-			m.app.selectedMenu--
-		}
-	case StateSleepSoundSelect:
-		if m.app.selectedMenu > 0 {
-			m.app.selectedMenu--
-		}
-	}
-	return m, nil
+// isInPathInputState checks if currently in a path input state
+func (m Model) isInPathInputState() bool {
+	return m.app.state == StateAlarmCustomPath ||
+		m.app.state == StateSleepCustomPath ||
+		m.app.state == StateBuzzerDirInput ||
+		m.app.state == StateSootherDirInput
 }
 
-func (m Model) handleDown() (tea.Model, tea.Cmd) {
+// toggleCurrentAlarm toggles the enabled state of the current alarm
+func (m Model) toggleCurrentAlarm() {
+	alarm := m.getCurrentAlarm()
+	alarm.Enabled = !alarm.Enabled
+	m.app.config.Save()
+}
+
+// NavigationConfig holds navigation bounds for different states
+type NavigationConfig struct {
+	MaxItems        int
+	CanNavigateUp   bool
+	CanNavigateDown bool
+}
+
+// getNavigationConfig returns navigation configuration for current state
+func (m Model) getNavigationConfig() NavigationConfig {
 	switch m.app.state {
-	case StateMainClock:
-		// No up/down navigation on main clock
 	case StateSettings:
-		maxItems := 6 // Font, 24H, Seconds, Buzzer Dir, Soother Dir, Back
-		if m.app.selectedMenu < maxItems-1 {
-			m.app.selectedMenu++
+		return NavigationConfig{
+			MaxItems:        6, // Font, 24H, Seconds, Buzzer Dir, Soother Dir, Back
+			CanNavigateUp:   m.app.selectedMenu > 0,
+			CanNavigateDown: m.app.selectedMenu < 5,
 		}
 	case StateAlarmEdit:
-		var alarm *config.Alarm
-		if m.app.editingAlarm == 1 {
-			alarm = &m.app.config.Alarm1
-		} else {
-			alarm = &m.app.config.Alarm2
-		}
-
+		alarm := m.getCurrentAlarm()
 		maxOptions := 6 // Enabled, Time, Days, Volume, Source, Back
 		if alarm.Source == config.SourceBuzzer {
 			maxOptions = 7 // Add Tone selection
 		} else if alarm.Source == config.SourceMP3 || alarm.Source == config.SourceRadio {
 			maxOptions = 7 // Add Custom path
 		}
-
-		if m.app.selectedMenu < maxOptions-1 {
-			m.app.selectedMenu++
+		return NavigationConfig{
+			MaxItems:        maxOptions,
+			CanNavigateUp:   m.app.selectedMenu > 0,
+			CanNavigateDown: m.app.selectedMenu < maxOptions-1,
 		}
 	case StateSleepEdit:
 		sleepTimer := &m.app.config.SleepTimer
-		maxItems := 5 // Enabled, Duration, Volume, Source, Back
+		maxItems := 5 // Duration, Volume, Source, Back
 		if sleepTimer.Source == config.SourceSoother {
 			maxItems = 6 // Add Sound selection
 		} else if sleepTimer.Source == config.SourceMP3 || sleepTimer.Source == config.SourceRadio {
 			maxItems = 6 // Add Custom path
 		}
-		if m.app.selectedMenu < maxItems-1 {
-			m.app.selectedMenu++
+		return NavigationConfig{
+			MaxItems:        maxItems,
+			CanNavigateUp:   m.app.selectedMenu > 0,
+			CanNavigateDown: m.app.selectedMenu < maxItems-1,
 		}
 	case StateAlarmDays:
-		if m.app.selectedMenu < 6 { // 7 days (0-6)
-			m.app.selectedMenu++
+		return NavigationConfig{
+			MaxItems:        7,
+			CanNavigateUp:   m.app.selectedMenu > 0,
+			CanNavigateDown: m.app.selectedMenu < 6, // 7 days (0-6)
 		}
 	case StateAlarmToneSelect:
-		if m.app.selectedMenu < len(m.app.availableTones)-1 {
-			m.app.selectedMenu++
+		return NavigationConfig{
+			MaxItems:        len(m.app.availableTones),
+			CanNavigateUp:   m.app.selectedMenu > 0,
+			CanNavigateDown: m.app.selectedMenu < len(m.app.availableTones)-1,
 		}
 	case StateSleepSoundSelect:
 		availableSounds := getAvailableFiles(config.SourceSoother, m.app.config)
-		if m.app.selectedMenu < len(availableSounds)-1 {
-			m.app.selectedMenu++
+		return NavigationConfig{
+			MaxItems:        len(availableSounds),
+			CanNavigateUp:   m.app.selectedMenu > 0,
+			CanNavigateDown: m.app.selectedMenu < len(availableSounds)-1,
 		}
+	default:
+		return NavigationConfig{MaxItems: 0, CanNavigateUp: false, CanNavigateDown: false}
+	}
+}
+
+// getCurrentAlarm returns pointer to current alarm being edited
+func (m Model) getCurrentAlarm() *config.Alarm {
+	if m.app.editingAlarm == 1 {
+		return &m.app.config.Alarm1
+	}
+	return &m.app.config.Alarm2
+}
+
+// navigateUp handles upward navigation for all states
+func (m Model) navigateUp() (tea.Model, tea.Cmd) {
+	config := m.getNavigationConfig()
+	if config.CanNavigateUp {
+		m.app.selectedMenu--
 	}
 	return m, nil
+}
+
+// navigateDown handles downward navigation for all states
+func (m Model) navigateDown() (tea.Model, tea.Cmd) {
+	config := m.getNavigationConfig()
+	if config.CanNavigateDown {
+		m.app.selectedMenu++
+	}
+	return m, nil
+}
+
+// Enhanced navigation handlers for all states
+func (m Model) handleUp() (tea.Model, tea.Cmd) {
+	return m.navigateUp()
+}
+
+func (m Model) handleDown() (tea.Model, tea.Cmd) {
+	return m.navigateDown()
+}
+
+// adjustValue adjusts a value within bounds with a given step
+func adjustValue(current, min, max, step int) int {
+	newValue := current + step
+	if newValue < min {
+		return min
+	}
+	if newValue > max {
+		return max
+	}
+	return newValue
+}
+
+// adjustAlarmVolume adjusts the current alarm's volume
+func (m Model) adjustAlarmVolume(delta int) {
+	alarm := m.getCurrentAlarm()
+	alarm.Volume = adjustValue(alarm.Volume, 0, 100, delta)
+	m.app.config.Save()
+}
+
+// adjustSleepVolume adjusts the sleep timer's volume
+func (m Model) adjustSleepVolume(delta int) {
+	sleepTimer := &m.app.config.SleepTimer
+	sleepTimer.Volume = adjustValue(sleepTimer.Volume, 0, 100, delta)
+	m.app.config.Save()
+}
+
+// adjustSleepDuration adjusts the sleep timer's duration
+func (m Model) adjustSleepDuration(delta int) {
+	sleepTimer := &m.app.config.SleepTimer
+	sleepTimer.Duration = adjustValue(sleepTimer.Duration, 0, 120, delta)
+	m.app.config.Save()
 }
 
 func (m Model) handleLeft() (tea.Model, tea.Cmd) {
@@ -972,40 +1023,11 @@ func (m Model) handleLeft() (tea.Model, tea.Cmd) {
 			m.app.selectedMenu--
 		}
 	case StateAlarmVolume:
-		// Decrease volume
-		var alarm *config.Alarm
-		if m.app.editingAlarm == 1 {
-			alarm = &m.app.config.Alarm1
-		} else {
-			alarm = &m.app.config.Alarm2
-		}
-		if alarm.Volume > 0 {
-			alarm.Volume -= 5
-			if alarm.Volume < 0 {
-				alarm.Volume = 0
-			}
-			m.app.config.Save()
-		}
+		m.adjustAlarmVolume(-5)
 	case StateSleepDuration:
-		// Decrease sleep timer duration
-		sleepTimer := &m.app.config.SleepTimer
-		if sleepTimer.Duration > 0 {
-			sleepTimer.Duration -= 5
-			if sleepTimer.Duration < 0 {
-				sleepTimer.Duration = 0
-			}
-			m.app.config.Save()
-		}
+		m.adjustSleepDuration(-5)
 	case StateSleepVolume:
-		// Decrease sleep timer volume
-		sleepTimer := &m.app.config.SleepTimer
-		if sleepTimer.Volume > 0 {
-			sleepTimer.Volume -= 5
-			if sleepTimer.Volume < 0 {
-				sleepTimer.Volume = 0
-			}
-			m.app.config.Save()
-		}
+		m.adjustSleepVolume(-5)
 	}
 	return m, nil
 }
@@ -1017,77 +1039,51 @@ func (m Model) handleRight() (tea.Model, tea.Cmd) {
 			m.app.selectedMenu++
 		}
 	case StateAlarmVolume:
-		// Increase volume
-		var alarm *config.Alarm
-		if m.app.editingAlarm == 1 {
-			alarm = &m.app.config.Alarm1
-		} else {
-			alarm = &m.app.config.Alarm2
-		}
-		if alarm.Volume < 100 {
-			alarm.Volume += 5
-			if alarm.Volume > 100 {
-				alarm.Volume = 100
-			}
-			m.app.config.Save()
-		}
+		m.adjustAlarmVolume(5)
 	case StateSleepDuration:
-		// Increase sleep timer duration
-		sleepTimer := &m.app.config.SleepTimer
-		if sleepTimer.Duration < 120 {
-			sleepTimer.Duration += 5
-			if sleepTimer.Duration > 120 {
-				sleepTimer.Duration = 120
-			}
-			m.app.config.Save()
-		}
+		m.adjustSleepDuration(5)
 	case StateSleepVolume:
-		// Increase sleep timer volume
-		sleepTimer := &m.app.config.SleepTimer
-		if sleepTimer.Volume < 100 {
-			sleepTimer.Volume += 5
-			if sleepTimer.Volume > 100 {
-				sleepTimer.Volume = 100
-			}
-			m.app.config.Save()
-		}
+		m.adjustSleepVolume(5)
 	}
 	return m, nil
 }
 
-// Simple time input - just numbers, no complex scrolling
-func (m Model) handleTimeInput(key string) (tea.Model, tea.Cmd) {
+// InputValidator defines the validation function for input characters
+type InputValidator func(key string) bool
+
+// handleGenericInput provides generic input handling with backspace and validation
+func handleGenericInput(input *string, key string, maxLength int, validator InputValidator) {
 	switch key {
 	case "backspace":
-		if len(m.app.timeInput) > 0 {
-			m.app.timeInput = m.app.timeInput[:len(m.app.timeInput)-1]
+		if len(*input) > 0 {
+			*input = (*input)[:len(*input)-1]
 		}
 	default:
-		// Only allow digits and colon for simple input
-		if len(key) == 1 && (key >= "0" && key <= "9" || key == ":") {
-			if len(m.app.timeInput) < 8 { // HH:MM:SS format
-				m.app.timeInput += key
-			}
+		if len(key) == 1 && validator(key) && len(*input) < maxLength {
+			*input += key
 		}
 	}
+}
+
+// timeInputValidator validates characters for time input (digits and colon)
+func timeInputValidator(key string) bool {
+	return (key >= "0" && key <= "9") || key == ":"
+}
+
+// pathInputValidator validates characters for path/URL input (printable characters)
+func pathInputValidator(key string) bool {
+	return key >= " " && key <= "~"
+}
+
+// Simple time input - just numbers, no complex scrolling
+func (m Model) handleTimeInput(key string) (tea.Model, tea.Cmd) {
+	handleGenericInput(&m.app.timeInput, key, 8, timeInputValidator) // HH:MM:SS format
 	return m, nil
 }
 
 // Handle custom path input for MP3/Radio URLs
 func (m Model) handleCustomPathInput(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "backspace":
-		if len(m.app.customPathInput) > 0 {
-			m.app.customPathInput = m.app.customPathInput[:len(m.app.customPathInput)-1]
-		}
-	default:
-		// Allow most printable characters for paths and URLs
-		if len(key) == 1 && key >= " " && key <= "~" {
-			if len(m.app.customPathInput) < 256 { // Reasonable limit for paths
-				m.app.customPathInput += key
-			}
-		}
-	}
+	handleGenericInput(&m.app.customPathInput, key, 256, pathInputValidator) // Reasonable limit for paths
 	return m, nil
 }
 
@@ -1124,23 +1120,40 @@ func (m Model) parseAndSetTime() bool {
 	timeStr := fmt.Sprintf("%02d:%02d:%02d", hour, minute, second)
 
 	// Set the alarm time
-	if m.app.editingAlarm == 1 {
-		m.app.config.Alarm1.Time = timeStr
-	} else {
-		m.app.config.Alarm2.Time = timeStr
-	}
+	alarm := m.getCurrentAlarm()
+	alarm.Time = timeStr
 
 	m.app.timeInput = ""
 	return true
 }
 
+// renderMenuOptions renders a list of menu options with selection highlighting
+func (m Model) renderMenuOptions(options []string) string {
+	var content strings.Builder
+	for i, option := range options {
+		if i == m.app.selectedMenu {
+			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s ", option)))
+		} else {
+			content.WriteString(fmt.Sprintf("   %s", option))
+		}
+		content.WriteString("\n")
+	}
+	return content.String()
+}
+
+// renderMenuWithInstructions renders a complete menu with title, options, and instructions
+func (m Model) renderMenuWithInstructions(title string, options []string, instructions string) string {
+	var content strings.Builder
+	content.WriteString(m.app.titleStyle.Render(title))
+	content.WriteString("\n\n")
+	content.WriteString(m.renderMenuOptions(options))
+	content.WriteString("\n")
+	content.WriteString(m.app.instructionStyle.Render(instructions))
+	return content.String()
+}
+
 // Render settings menu (simple, no complex styling)
 func (m Model) renderSettings() string {
-	var content strings.Builder
-
-	content.WriteString(m.app.titleStyle.Render("⚙️  SETTINGS"))
-	content.WriteString("\n\n")
-
 	settings := []string{
 		fmt.Sprintf("Font: %s", m.app.config.FontName),
 		fmt.Sprintf("24H Format: %s", getBoolText(m.app.config.Hour24Format)),
@@ -1150,35 +1163,16 @@ func (m Model) renderSettings() string {
 		"Back",
 	}
 
-	for i, setting := range settings {
-		if i == m.app.selectedMenu {
-			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s ", setting)))
-		} else {
-			content.WriteString(fmt.Sprintf("   %s", setting))
-		}
-		content.WriteString("\n")
-	}
-
-	content.WriteString("\n")
-	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  ENTER to toggle  •  ESC to return"))
-
-	return content.String()
+	return m.renderMenuWithInstructions(
+		"⚙️  SETTINGS",
+		settings,
+		"↑↓ to navigate  •  ENTER to toggle  •  ESC to return",
+	)
 }
 
 // Render alarm edit menu (enhanced with all configuration options)
 func (m Model) renderAlarmEdit() string {
-	var content strings.Builder
-
-	title := fmt.Sprintf("🔔 ALARM %d CONFIGURATION", m.app.editingAlarm)
-	content.WriteString(m.app.titleStyle.Render(title))
-	content.WriteString("\n\n")
-
-	var alarm *config.Alarm
-	if m.app.editingAlarm == 1 {
-		alarm = &m.app.config.Alarm1
-	} else {
-		alarm = &m.app.config.Alarm2
-	}
+	alarm := m.getCurrentAlarm()
 
 	menuOptions := []string{
 		fmt.Sprintf("Enabled: %s", getBoolText(alarm.Enabled)),
@@ -1211,29 +1205,15 @@ func (m Model) renderAlarmEdit() string {
 
 	menuOptions = append(menuOptions, "Back")
 
-	for i, option := range menuOptions {
-		if i == m.app.selectedMenu {
-			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s ", option)))
-		} else {
-			content.WriteString(fmt.Sprintf("   %s", option))
-		}
-		content.WriteString("\n")
-	}
-
-	content.WriteString("\n")
-	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  ENTER to edit  •  ESC to return"))
-
-	return content.String()
+	return m.renderMenuWithInstructions(
+		fmt.Sprintf("🔔 ALARM %d CONFIGURATION", m.app.editingAlarm),
+		menuOptions,
+		"↑↓ to navigate  •  ENTER to edit  •  ESC to return",
+	)
 }
 
 // Render sleep timer edit menu
 func (m Model) renderSleepEdit() string {
-	var content strings.Builder
-
-	title := "🌙 SLEEP TIMER CONFIGURATION"
-	content.WriteString(m.app.titleStyle.Render(title))
-	content.WriteString("\n\n")
-
 	sleepTimer := &m.app.config.SleepTimer
 
 	menuOptions := []string{
@@ -1265,19 +1245,11 @@ func (m Model) renderSleepEdit() string {
 
 	menuOptions = append(menuOptions, "Back")
 
-	for i, option := range menuOptions {
-		if i == m.app.selectedMenu {
-			content.WriteString(m.app.selectedStyle.Render(fmt.Sprintf(" > %s ", option)))
-		} else {
-			content.WriteString(fmt.Sprintf("   %s", option))
-		}
-		content.WriteString("\n")
-	}
-
-	content.WriteString("\n")
-	content.WriteString(m.app.instructionStyle.Render("↑↓ to navigate  •  ENTER to edit  •  ESC to return"))
-
-	return content.String()
+	return m.renderMenuWithInstructions(
+		"🌙 SLEEP TIMER CONFIGURATION",
+		menuOptions,
+		"↑↓ to navigate  •  ENTER to edit  •  ESC to return",
+	)
 }
 
 // Render simple time input screen
@@ -1639,8 +1611,8 @@ func discoverToneFiles(cfg *config.Config) []string {
 
 	files, err := os.ReadDir(toneDir)
 	if err != nil {
-		// Return default if directory doesn't exist
-		return []string{"pattern1.tone", "pattern2.tone", "pattern3.tone", "pattern4.tone", "pattern5.tone"}
+		// Return empty slice if directory doesn't exist
+		return []string{}
 	}
 
 	for _, file := range files {
@@ -1649,10 +1621,6 @@ func discoverToneFiles(cfg *config.Config) []string {
 		}
 	}
 
-	if len(tones) == 0 {
-		// Return default if no files found
-		return []string{"pattern1.tone", "pattern2.tone", "pattern3.tone", "pattern4.tone", "pattern5.tone"}
-	}
-
+	// Return empty slice if no files found (don't return non-existent files)
 	return tones
 }

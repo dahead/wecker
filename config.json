@@ -1,7 +1,7 @@
 {
   "hour_24_format": true,
   "show_seconds": false,
-  "font_name": "slant",
+  "font_name": "standard",
   "brightness": 10,
   "backlight": 5,
   "alarm1": {
@@ -41,9 +41,9 @@
     "volume_ramp": true
   },
   "sleep_timer": {
-    "duration": 10,
+    "duration": 0,
     "source": "soother",
-    "volume": 70,
+    "volume": 25,
     "alarm_source_value": "include/sounds/soother/whitenoise_focus3.tone"
   },
   "snooze_minutes": 10,
