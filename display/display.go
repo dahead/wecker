@@ -387,9 +387,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.app.state == StateAlarmEdit {
 				m.app.state = StateTimeInput
 				// Pre-fill with current alarm time
-				alarm := m.getCurrentAlarm()
+				a := m.getCurrentAlarm()
 				// Extract HH:MM from the time string (remove seconds if present)
-				m.app.timeInput = alarm.Time[:5]
+				m.app.timeInput = a.Time[:5]
 			}
 
 		case "e":
@@ -685,29 +685,29 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			m.app.selectedMenu = 0
 		}
 	case StateAlarmEdit:
-		var alarm *config.Alarm
+		var a *config.Alarm
 		if m.app.editingAlarm == 1 {
-			alarm = &m.app.config.Alarm1
+			a = &m.app.config.Alarm1
 		} else {
-			alarm = &m.app.config.Alarm2
+			a = &m.app.config.Alarm2
 		}
 
 		maxOptions := 5 // Enabled, Time, Days, Volume, Source
-		if alarm.Source == config.SourceBuzzer {
+		if a.Source == config.SourceBuzzer {
 			maxOptions = 6 // Add Tone selection
-		} else if alarm.Source == config.SourceMP3 || alarm.Source == config.SourceRadio {
+		} else if a.Source == config.SourceMP3 || a.Source == config.SourceRadio {
 			maxOptions = 6 // Add Custom path
 		}
 
 		switch m.app.selectedMenu {
 		case 0: // Toggle enabled
-			alarm.Enabled = !alarm.Enabled
+			a.Enabled = !a.Enabled
 			m.app.config.Save()
 		case 1: // Edit time
 			m.app.state = StateTimeInput
-			// Pre-fill with current alarm time
+			// Pre-fill with current a time
 			// Extract HH:MM from the time string (remove seconds if present)
-			m.app.timeInput = alarm.Time[:5]
+			m.app.timeInput = a.Time[:5]
 		case 2: // Edit days
 			m.app.state = StateAlarmDays
 			m.app.selectedMenu = 0
@@ -717,22 +717,22 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			sources := []config.AlarmSource{config.SourceBuzzer, config.SourceMP3, config.SourceRadio}
 			currentIndex := 0
 			for i, source := range sources {
-				if source == alarm.Source {
+				if source == a.Source {
 					currentIndex = i
 					break
 				}
 			}
-			alarm.Source = sources[(currentIndex+1)%len(sources)]
+			a.Source = sources[(currentIndex+1)%len(sources)]
 			// Reset source value when changing source
-			alarm.AlarmSourceValue = ""
+			a.AlarmSourceValue = ""
 			m.app.config.Save()
 		case 5: // Source-specific options
-			if alarm.Source == config.SourceBuzzer {
+			if a.Source == config.SourceBuzzer {
 				m.app.state = StateAlarmToneSelect
 				m.app.selectedMenu = 0
-			} else if alarm.Source == config.SourceMP3 || alarm.Source == config.SourceRadio {
+			} else if a.Source == config.SourceMP3 || a.Source == config.SourceRadio {
 				m.app.state = StateAlarmCustomPath
-				m.app.customPathInput = alarm.AlarmSourceValue
+				m.app.customPathInput = a.AlarmSourceValue
 			}
 		default: // Back
 			if m.app.selectedMenu >= maxOptions {
@@ -789,41 +789,41 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		}
 	case StateAlarmDays:
 		// Toggle day selection
-		var alarm *config.Alarm
+		var a *config.Alarm
 		if m.app.editingAlarm == 1 {
-			alarm = &m.app.config.Alarm1
+			a = &m.app.config.Alarm1
 		} else {
-			alarm = &m.app.config.Alarm2
+			a = &m.app.config.Alarm2
 		}
 		if m.app.selectedMenu < 7 {
-			alarm.Days[m.app.selectedMenu] = !alarm.Days[m.app.selectedMenu]
+			a.Days[m.app.selectedMenu] = !a.Days[m.app.selectedMenu]
 			m.app.config.Save()
 		}
 	case StateAlarmVolume:
 		// Volume handled by left/right keys
 	case StateAlarmToneSelect:
 		// Select tone file
-		var alarm *config.Alarm
+		var a *config.Alarm
 		if m.app.editingAlarm == 1 {
-			alarm = &m.app.config.Alarm1
+			a = &m.app.config.Alarm1
 		} else {
-			alarm = &m.app.config.Alarm2
+			a = &m.app.config.Alarm2
 		}
 		if m.app.selectedMenu < len(m.app.availableTones) {
-			alarm.AlarmSourceValue = m.app.config.BuzzerDir + "/" + m.app.availableTones[m.app.selectedMenu]
+			a.AlarmSourceValue = m.app.config.BuzzerDir + "/" + m.app.availableTones[m.app.selectedMenu]
 			m.app.config.Save()
 			m.app.state = StateAlarmEdit
 			m.app.selectedMenu = 5
 		}
 	case StateAlarmCustomPath:
 		// Save custom path
-		var alarm *config.Alarm
+		var a *config.Alarm
 		if m.app.editingAlarm == 1 {
-			alarm = &m.app.config.Alarm1
+			a = &m.app.config.Alarm1
 		} else {
-			alarm = &m.app.config.Alarm2
+			a = &m.app.config.Alarm2
 		}
-		alarm.AlarmSourceValue = m.app.customPathInput
+		a.AlarmSourceValue = m.app.customPathInput
 		m.app.config.Save()
 		m.app.state = StateAlarmEdit
 		m.app.selectedMenu = 5
@@ -877,8 +877,8 @@ func (m Model) isInPathInputState() bool {
 
 // toggleCurrentAlarm toggles the enabled state of the current alarm
 func (m Model) toggleCurrentAlarm() {
-	alarm := m.getCurrentAlarm()
-	alarm.Enabled = !alarm.Enabled
+	a := m.getCurrentAlarm()
+	a.Enabled = !a.Enabled
 	m.app.config.Save()
 }
 
@@ -899,11 +899,11 @@ func (m Model) getNavigationConfig() NavigationConfig {
 			CanNavigateDown: m.app.selectedMenu < 5,
 		}
 	case StateAlarmEdit:
-		alarm := m.getCurrentAlarm()
+		a := m.getCurrentAlarm()
 		maxOptions := 6 // Enabled, Time, Days, Volume, Source, Back
-		if alarm.Source == config.SourceBuzzer {
+		if a.Source == config.SourceBuzzer {
 			maxOptions = 7 // Add Tone selection
-		} else if alarm.Source == config.SourceMP3 || alarm.Source == config.SourceRadio {
+		} else if a.Source == config.SourceMP3 || a.Source == config.SourceRadio {
 			maxOptions = 7 // Add Custom path
 		}
 		return NavigationConfig{
@@ -958,8 +958,8 @@ func (m Model) getCurrentAlarm() *config.Alarm {
 
 // navigateUp handles upward navigation for all states
 func (m Model) navigateUp() (tea.Model, tea.Cmd) {
-	config := m.getNavigationConfig()
-	if config.CanNavigateUp {
+	c := m.getNavigationConfig()
+	if c.CanNavigateUp {
 		m.app.selectedMenu--
 	}
 	return m, nil
@@ -967,8 +967,8 @@ func (m Model) navigateUp() (tea.Model, tea.Cmd) {
 
 // navigateDown handles downward navigation for all states
 func (m Model) navigateDown() (tea.Model, tea.Cmd) {
-	config := m.getNavigationConfig()
-	if config.CanNavigateDown {
+	c := m.getNavigationConfig()
+	if c.CanNavigateDown {
 		m.app.selectedMenu++
 	}
 	return m, nil
@@ -997,8 +997,8 @@ func adjustValue(current, min, max, step int) int {
 
 // adjustAlarmVolume adjusts the current alarm's volume
 func (m Model) adjustAlarmVolume(delta int) {
-	alarm := m.getCurrentAlarm()
-	alarm.Volume = adjustValue(alarm.Volume, 0, 100, delta)
+	a := m.getCurrentAlarm()
+	a.Volume = adjustValue(a.Volume, 0, 100, delta)
 	m.app.config.Save()
 }
 
@@ -1119,9 +1119,9 @@ func (m Model) parseAndSetTime() bool {
 	// Format time string
 	timeStr := fmt.Sprintf("%02d:%02d:%02d", hour, minute, second)
 
-	// Set the alarm time
-	alarm := m.getCurrentAlarm()
-	alarm.Time = timeStr
+	// Set the a time
+	a := m.getCurrentAlarm()
+	a.Time = timeStr
 
 	m.app.timeInput = ""
 	return true
@@ -1172,31 +1172,31 @@ func (m Model) renderSettings() string {
 
 // Render alarm edit menu (enhanced with all configuration options)
 func (m Model) renderAlarmEdit() string {
-	alarm := m.getCurrentAlarm()
+	a := m.getCurrentAlarm()
 
 	menuOptions := []string{
-		fmt.Sprintf("Enabled: %s", getBoolText(alarm.Enabled)),
-		fmt.Sprintf("Time: %s", alarm.Time[:5]),
-		fmt.Sprintf("Days: %s", m.getActiveDaysString(alarm.Days)),
-		fmt.Sprintf("Volume: %d%%", alarm.Volume),
-		fmt.Sprintf("Source: %s", alarm.Source),
+		fmt.Sprintf("Enabled: %s", getBoolText(a.Enabled)),
+		fmt.Sprintf("Time: %s", a.Time[:5]),
+		fmt.Sprintf("Days: %s", m.getActiveDaysString(a.Days)),
+		fmt.Sprintf("Volume: %d%%", a.Volume),
+		fmt.Sprintf("Source: %s", a.Source),
 	}
 
 	// Add source-specific options
-	if alarm.Source == config.SourceBuzzer {
-		toneFile := alarm.AlarmSourceValue
+	if a.Source == config.SourceBuzzer {
+		toneFile := a.AlarmSourceValue
 		if toneFile == "" {
 			toneFile = "pattern1.tone"
 		}
 		menuOptions = append(menuOptions, fmt.Sprintf("Tone: %s", toneFile))
-	} else if alarm.Source == config.SourceMP3 {
-		mp3Path := alarm.AlarmSourceValue
+	} else if a.Source == config.SourceMP3 {
+		mp3Path := a.AlarmSourceValue
 		if mp3Path == "" {
 			mp3Path = "<not set>"
 		}
 		menuOptions = append(menuOptions, fmt.Sprintf("MP3 Path: %s", mp3Path))
-	} else if alarm.Source == config.SourceRadio {
-		radioURL := alarm.AlarmSourceValue
+	} else if a.Source == config.SourceRadio {
+		radioURL := a.AlarmSourceValue
 		if radioURL == "" {
 			radioURL = "<not set>"
 		}
@@ -1288,18 +1288,18 @@ func (m Model) renderAlarmDays() string {
 	content.WriteString(m.app.titleStyle.Render(title))
 	content.WriteString("\n\n")
 
-	var alarm *config.Alarm
+	var a *config.Alarm
 	if m.app.editingAlarm == 1 {
-		alarm = &m.app.config.Alarm1
+		a = &m.app.config.Alarm1
 	} else {
-		alarm = &m.app.config.Alarm2
+		a = &m.app.config.Alarm2
 	}
 
 	days := []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
 
 	for i, day := range days {
 		checkbox := "[ ]"
-		if alarm.Days[i] {
+		if a.Days[i] {
 			checkbox = "[X]"
 		}
 
@@ -1325,20 +1325,20 @@ func (m Model) renderAlarmVolume() string {
 	content.WriteString(m.app.titleStyle.Render(title))
 	content.WriteString("\n\n")
 
-	var alarm *config.Alarm
+	var a *config.Alarm
 	if m.app.editingAlarm == 1 {
-		alarm = &m.app.config.Alarm1
+		a = &m.app.config.Alarm1
 	} else {
-		alarm = &m.app.config.Alarm2
+		a = &m.app.config.Alarm2
 	}
 
-	content.WriteString(fmt.Sprintf("Current Volume: %d%%\n\n", alarm.Volume))
+	content.WriteString(fmt.Sprintf("Current Volume: %d%%\n\n", a.Volume))
 
 	// Volume bar
 	barWidth := 20
-	filledBars := int(float64(alarm.Volume) / 100.0 * float64(barWidth))
+	filledBars := int(float64(a.Volume) / 100.0 * float64(barWidth))
 	volumeBar := strings.Repeat("█", filledBars) + strings.Repeat("░", barWidth-filledBars)
-	content.WriteString(fmt.Sprintf("[%s] %d%%\n\n", volumeBar, alarm.Volume))
+	content.WriteString(fmt.Sprintf("[%s] %d%%\n\n", volumeBar, a.Volume))
 
 	content.WriteString(m.app.instructionStyle.Render("←→ to adjust volume  •  ESC to return"))
 
@@ -1372,19 +1372,19 @@ func (m Model) renderAlarmToneSelect() string {
 func (m Model) renderAlarmCustomPath() string {
 	var content strings.Builder
 
-	var alarm *config.Alarm
+	var a *config.Alarm
 	if m.app.editingAlarm == 1 {
-		alarm = &m.app.config.Alarm1
+		a = &m.app.config.Alarm1
 	} else {
-		alarm = &m.app.config.Alarm2
+		a = &m.app.config.Alarm2
 	}
 
 	var title, prompt, example string
-	if alarm.Source == config.SourceMP3 {
+	if a.Source == config.SourceMP3 {
 		title = fmt.Sprintf("🎵 MP3 PATH FOR ALARM %d", m.app.editingAlarm)
 		prompt = "Enter MP3 file or directory path:"
-		example = "Examples: /home/user/music/alarm.mp3, /home/user/music/"
-	} else if alarm.Source == config.SourceRadio {
+		example = "Examples: /home/user/music/a.mp3, /home/user/music/"
+	} else if a.Source == config.SourceRadio {
 		title = fmt.Sprintf("📻 RADIO URL FOR ALARM %d", m.app.editingAlarm)
 		prompt = "Enter radio stream URL:"
 		example = "Examples: http://stream.com/radio.m3u, https://radio.com/stream"
