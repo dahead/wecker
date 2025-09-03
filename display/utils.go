@@ -32,3 +32,11 @@ func getAvailableFiles(source config.AlarmSource, cfg *config.Config) []string {
 	sort.Strings(files)
 	return files
 }
+
+// Helper functions
+func getBoolText(value bool) string {
+	if value {
+		return "ON"
+	}
+	return "OFF"
+}

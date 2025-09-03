@@ -1,13 +1,13 @@
 {
   "hour_24_format": true,
-  "show_seconds": false,
-  "font_name": "standard",
+  "show_seconds": true,
+  "font_name": "starwars",
   "brightness": 10,
   "backlight": 5,
   "alarm1": {
     "id": 1,
     "enabled": true,
-    "time": "05:45:00",
+    "time": "10:40:00",
     "days": [
       false,
       true,
@@ -51,5 +51,10 @@
   "last_radio_url": "",
   "last_mp3_path": "/home/dh/Music/YOUNA - Melodic Techno \u0026 Progressive House DJ Mix 09 @ Dubai [_isajPgmbOY].mp3",
   "buzzer_dir": "include/sounds/buzzer",
-  "soother_dir": "include/sounds/soother"
+  "soother_dir": "include/sounds/soother",
+  "show_navigation_bar": false,
+  "show_settings_bar": true,
+  "show_sleep_timer": true,
+  "show_inactive_items": true,
+  "show_alarm_2": true
 }

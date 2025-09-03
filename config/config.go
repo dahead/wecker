@@ -65,6 +65,13 @@ type Config struct {
 	// Sound directories
 	BuzzerDir  string `json:"buzzer_dir"`  // Directory containing buzzer .tone files
 	SootherDir string `json:"soother_dir"` // Directory containing soother .tone files
+
+	// UI enable/disable
+	ShowNavigationBar bool `json:"show_navigation_bar"`
+	ShowSettingsBar   bool `json:"show_settings_bar"`   // show/hide [SETTINGS] [ALARM...] [SLEEP] bar
+	ShowSleepTimer    bool `json:"show_sleep_timer"`    // show/hide just [SLEEP]
+	ShowInactiveItems bool `json:"show_inactive_items"` // show/hide alarm1/2 indicator, sleep indicator if disabled
+	ShowAlarm2        bool `json:"show_alarm_2"`        // show/hide [ALARM 2]
 }
 
 // DefaultConfig returns a configuration with sensible defaults
@@ -98,10 +105,15 @@ func DefaultConfig() *Config {
 			Source:   SourceSoother,
 			Volume:   30, // Lower volume for sleep timer
 		},
-		SnoozeMinutes: 5,
-		PlayerCommand: "mpv",
-		BuzzerDir:     "include/sounds/buzzer",
-		SootherDir:    "include/sounds/soother",
+		SnoozeMinutes:     5,
+		PlayerCommand:     "mpv",
+		BuzzerDir:         "include/sounds/buzzer",
+		SootherDir:        "include/sounds/soother",
+		ShowNavigationBar: true,
+		ShowSettingsBar:   true,
+		ShowSleepTimer:    true,
+		ShowInactiveItems: true,
+		ShowAlarm2:        true,
 	}
 }
 
@@ -176,7 +188,11 @@ func (a *Alarm) IsAlarmActive(t time.Time) bool {
 		alarmTime += ":00"
 	}
 
-	return currentTimeStr == alarmTime
+	AlarmTriggered := currentTimeStr == alarmTime
+
+	// log.Println("Alarm triggered: ", AlarmTriggered)
+
+	return AlarmTriggered
 }
 
 // FormatTime formats time according to 12/24 hour setting

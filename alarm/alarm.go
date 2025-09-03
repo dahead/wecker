@@ -16,6 +16,8 @@ const (
 	StateTriggered
 )
 
+const appLoopInterval = 5
+
 // ActiveAlarm represents an alarm that is currently running
 type ActiveAlarm struct {
 	Alarm       *config.Alarm
@@ -60,7 +62,7 @@ func (m *Manager) Start() {
 
 // monitorLoop continuously checks for alarm triggers
 func (m *Manager) monitorLoop() {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(appLoopInterval * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -221,13 +223,8 @@ func (m *Manager) GetAlarmState(alarmID int) AlarmState {
 
 // SetSnoozeTime updates the snooze duration
 func (m *Manager) SetSnoozeTime(minutes int) {
-	validMinutes := []int{5, 7, 10, 15, 30, 45, 60, 90, 120}
-	for _, valid := range validMinutes {
-		if minutes == valid {
-			m.config.SnoozeMinutes = minutes
-			return
-		}
-	}
+	m.config.SnoozeMinutes = minutes
+	return
 }
 
 // GetSnoozeTimeRemaining returns remaining snooze time for an alarm

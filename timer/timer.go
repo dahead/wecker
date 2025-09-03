@@ -133,19 +133,6 @@ func (m *Manager) StartSleepTimer(minutes int) bool {
 
 // StartSnoozeTimer starts a snooze timer with specified minutes
 func (m *Manager) StartSnoozeTimer(minutes int) bool {
-	validMinutes := []int{5, 10, 15, 30}
-	isValid := false
-	for _, valid := range validMinutes {
-		if minutes == valid {
-			isValid = true
-			break
-		}
-	}
-
-	if !isValid {
-		return false
-	}
-
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -220,12 +207,12 @@ func (m *Manager) IsTimerActive(timerType TimerType) bool {
 
 // GetSleepTimerOptions returns valid sleep timer duration options in minutes
 func GetSleepTimerOptions() []int {
-	return []int{15, 30, 45, 60, 90, 120}
+	return []int{5, 7, 15, 30, 45, 60, 90, 120}
 }
 
 // GetSnoozeTimerOptions returns valid snooze timer duration options in minutes
 func GetSnoozeTimerOptions() []int {
-	return []int{5, 10, 15, 30}
+	return []int{5, 7, 15, 30, 45, 60, 90, 120}
 }
 
 // CycleSleepTimer cycles through sleep timer options and returns the next option

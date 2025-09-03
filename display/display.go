@@ -35,6 +35,11 @@ const (
 	StateSleepCustomPath
 	StateBuzzerDirInput
 	StateSootherDirInput
+	//StateShowNavigationBar
+	//StateShowSettingsBar
+	//StateShowInactiveItems
+	//StateShowAlarm2
+	//StateShowSleepTimer
 )
 
 // App holds the main TUI application
@@ -286,26 +291,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case tea.KeyMsg:
-		// Handle sleep timer stop with 'S' key when active
-		if m.app.timerManager.IsTimerActive(timer.TypeSleep) && m.app.state == StateMainClock && msg.String() == "S" {
-			// Stop sleep timer only on 'S' key press when active
-			m.app.timerManager.StopTimer(timer.TypeSleep)
-			return m, nil
-		}
 
-		// Handle active alarms - snooze with S or SPACE
-		activeAlarms := m.app.alarmManager.GetActiveAlarms()
-		if len(activeAlarms) > 0 && m.app.state == StateMainClock {
-			// Handle snooze with S or SPACE keys
-			if msg.String() == "s" || msg.String() == " " {
+		//// SLEEP TIMER
+		//// Handle sleep timer stop with 's' key or SPACE when active
+		//if m.app.timerManager.IsTimerActive(timer.TypeSleep) && m.app.state == StateMainClock {
+		//	if msg.String() == "s" || msg.String() == " " {
+		//		// Stop sleep timer only on 'S' key press when active
+		//		m.app.timerManager.StopTimer(timer.TypeSleep)
+		//		return m, nil
+		//	}
+		//}
+
+		// SNOOZE
+		// Handle active alarms - snooze with 's' or SPACE
+		//activeAlarms := m.app.alarmManager.GetActiveAlarms()
+		//if len(activeAlarms) > 0 && m.app.state == StateMainClock {
+		//	// Handle snooze with S or SPACE keys
+		//	if msg.String() == "s" || msg.String() == " " {
+		//		for alarmID := range activeAlarms {
+		//			m.app.alarmManager.SnoozeAlarm(alarmID)
+		//		}
+		//		return m, nil
+		//	}
+		//}
+
+		switch msg.String() {
+
+		case "s", " ":
+			// Todo: Test
+			// stop sleep timer
+			if m.app.timerManager.IsTimerActive(timer.TypeSleep) && m.app.state == StateMainClock {
+				m.app.timerManager.StopTimer(timer.TypeSleep)
+				return m, nil
+			}
+
+			// Todo: Test
+			// snooze
+			activeAlarms := m.app.alarmManager.GetActiveAlarms()
+			if len(activeAlarms) > 0 && m.app.state == StateMainClock {
 				for alarmID := range activeAlarms {
 					m.app.alarmManager.SnoozeAlarm(alarmID)
 				}
 				return m, nil
 			}
-		}
 
-		switch msg.String() {
 		case "ctrl+c", "q":
 			// IMPORTANT: Save config before quitting to fix alarm settings saving issue
 			if err := m.app.config.Save(); err != nil {
@@ -378,29 +407,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.handleRight()
 
-		case "t":
-			// Don't handle time input shortcut if we're in a path input state
-			if m.isInPathInputState() {
-				return m.handleCustomPathInput(msg.String())
-			}
-			// Simple time editing - press T to enter time input
-			if m.app.state == StateAlarmEdit {
-				m.app.state = StateTimeInput
-				// Pre-fill with current alarm time
-				a := m.getCurrentAlarm()
-				// Extract HH:MM from the time string (remove seconds if present)
-				m.app.timeInput = a.Time[:5]
-			}
-
-		case "e":
-			// Don't handle alarm toggle if we're in a path input state
-			if m.isInPathInputState() {
-				return m.handleCustomPathInput(msg.String())
-			}
-			// Toggle alarm enabled/disabled
-			if m.app.state == StateAlarmEdit {
-				m.toggleCurrentAlarm()
-			}
+		//case "t":
+		//	// Don't handle time input shortcut if we're in a path input state
+		//	if m.isInPathInputState() {
+		//		return m.handleCustomPathInput(msg.String())
+		//	}
+		//	// Simple time editing - press T to enter time input
+		//	if m.app.state == StateAlarmEdit {
+		//		m.app.state = StateTimeInput
+		//		// Pre-fill with current alarm time
+		//		a := m.getCurrentAlarm()
+		//		// Extract HH:MM from the time string (remove seconds if present)
+		//		m.app.timeInput = a.Time[:5]
+		//	}
+		//
+		//case "e":
+		//	// Don't handle alarm toggle if we're in a path input state
+		//	if m.isInPathInputState() {
+		//		return m.handleCustomPathInput(msg.String())
+		//	}
+		//	// Toggle alarm enabled/disabled
+		//	if m.app.state == StateAlarmEdit {
+		//		m.toggleCurrentAlarm()
+		//	}
 
 		default:
 			if m.app.state == StateTimeInput {
@@ -480,8 +509,10 @@ func (m Model) renderMainClock() string {
 	content.WriteString("\n\n")
 
 	// Add navigation instructions
-	instructions := "← → to navigate  •  ENTER to select  •  Q to quit"
-	content.WriteString(m.app.instructionStyle.Render(instructions))
+	if m.app.config.ShowNavigationBar == true {
+		instructions := "← → to navigate  •  ENTER to select  •  Q to quit"
+		content.WriteString(m.app.instructionStyle.Render(instructions))
+	}
 
 	return content.String()
 }
@@ -495,12 +526,12 @@ func (m Model) renderAlarmStatus() string {
 
 	// Regular alarm status display (enhanced to show active alarms)
 	// Alarm 1 status
-	alarm1Icon := "⏰"
+	alarm1Icon := "🔴"
 	color1 := "#666666"
 	_, isAlarm1Active := activeAlarms[1]
 
 	if isAlarm1Active {
-		alarm1Icon = "🔴"
+		alarm1Icon = "⏰"
 		color1 = "#FF0000"
 	} else if m.app.config.Alarm1.Enabled {
 		alarm1Icon = "🔔"
@@ -517,20 +548,23 @@ func (m Model) renderAlarmStatus() string {
 		alarm1Text += " [OFF]"
 	}
 
-	status.WriteString(lipgloss.NewStyle().
-		Foreground(lipgloss.Color(color1)).
-		Bold(isAlarm1Active).
-		Render(alarm1Text))
+	// respect config
+	if m.app.config.ShowInactiveItems == true || m.app.config.Alarm1.Enabled {
+		status.WriteString(lipgloss.NewStyle().
+			Foreground(lipgloss.Color(color1)).
+			Bold(isAlarm1Active).
+			Render(alarm1Text))
 
-	status.WriteString("    ")
+		status.WriteString("    ")
+	}
 
 	// Alarm 2 status
-	alarm2Icon := "⏰"
+	alarm2Icon := "🔴"
 	color2 := "#666666"
 	_, isAlarm2Active := activeAlarms[2]
 
 	if isAlarm2Active {
-		alarm2Icon = "🔴"
+		alarm2Icon = "⏰"
 		color2 = "#FF0000"
 	} else if m.app.config.Alarm2.Enabled {
 		alarm2Icon = "🔔"
@@ -547,12 +581,15 @@ func (m Model) renderAlarmStatus() string {
 		alarm2Text += " [OFF]"
 	}
 
-	status.WriteString(lipgloss.NewStyle().
-		Foreground(lipgloss.Color(color2)).
-		Bold(isAlarm2Active).
-		Render(alarm2Text))
+	// respect config
+	if m.app.config.ShowInactiveItems == true || m.app.config.Alarm2.Enabled {
+		status.WriteString(lipgloss.NewStyle().
+			Foreground(lipgloss.Color(color2)).
+			Bold(isAlarm2Active).
+			Render(alarm2Text))
 
-	status.WriteString("    ")
+		status.WriteString("    ")
+	}
 
 	// Sleep Timer status (always shown)
 	sleepIcon := "😴"
@@ -573,9 +610,12 @@ func (m Model) renderAlarmStatus() string {
 		sleepText = fmt.Sprintf("%s SLEEP: %dm [OFF]", sleepIcon, m.app.config.SleepTimer.Duration)
 	}
 
-	status.WriteString(lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorSleep)).
-		Render(sleepText))
+	// respect config
+	if m.app.config.ShowInactiveItems == true || m.app.config.ShowSleepTimer || m.app.timerManager.IsTimerActive(timer.TypeSleep) {
+		status.WriteString(lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorSleep)).
+			Render(sleepText))
+	}
 
 	return lipgloss.NewStyle().
 		Align(lipgloss.Center).
@@ -680,7 +720,23 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 		case 4: // Soother Dir
 			m.app.state = StateSootherDirInput
 			m.app.customPathInput = m.app.config.SootherDir
-		case 5: // Back
+		case 5: // Show Navigation bar
+			// m.app.state = StateShowNavigationBar
+			m.app.config.ShowNavigationBar = !m.app.config.ShowNavigationBar
+			m.app.config.Save()
+		case 6: // Show Settings bar
+			m.app.config.ShowSettingsBar = !m.app.config.ShowSettingsBar
+			m.app.config.Save()
+		case 7: // Show Inactive Items
+			m.app.config.ShowInactiveItems = !m.app.config.ShowInactiveItems
+			m.app.config.Save()
+		case 8: // Show Alarm 2
+			m.app.config.ShowAlarm2 = !m.app.config.ShowAlarm2
+			m.app.config.Save()
+		case 9: // Show Sleep Timer
+			m.app.config.ShowSleepTimer = !m.app.config.ShowSleepTimer
+			m.app.config.Save()
+		case 10: // Back
 			m.app.state = StateMainClock
 			m.app.selectedMenu = 0
 		}
@@ -894,9 +950,10 @@ func (m Model) getNavigationConfig() NavigationConfig {
 	switch m.app.state {
 	case StateSettings:
 		return NavigationConfig{
-			MaxItems:        6, // Font, 24H, Seconds, Buzzer Dir, Soother Dir, Back
+			MaxItems: 6, // Font, 24H, Seconds, Buzzer Dir,
+			// Soother Dir, Show Navigation, ..., Show Alarm 2, Show Sleep Timer, Back
 			CanNavigateUp:   m.app.selectedMenu > 0,
-			CanNavigateDown: m.app.selectedMenu < 5,
+			CanNavigateDown: m.app.selectedMenu < 10,
 		}
 	case StateAlarmEdit:
 		a := m.getCurrentAlarm()
@@ -1143,6 +1200,11 @@ func (m Model) renderMenuOptions(options []string) string {
 
 // renderMenuWithInstructions renders a complete menu with title, options, and instructions
 func (m Model) renderMenuWithInstructions(title string, options []string, instructions string) string {
+
+	if m.app.config.ShowNavigationBar == false {
+		return fmt.Sprintf("%s\n%s\n%s", title, m.renderMenuOptions(options), instructions)
+	}
+
 	var content strings.Builder
 	content.WriteString(m.app.titleStyle.Render(title))
 	content.WriteString("\n\n")
@@ -1160,6 +1222,11 @@ func (m Model) renderSettings() string {
 		fmt.Sprintf("Show Seconds: %s", getBoolText(m.app.config.ShowSeconds)),
 		fmt.Sprintf("Buzzer Dir: %s", m.app.config.BuzzerDir),
 		fmt.Sprintf("Soother Dir: %s", m.app.config.SootherDir),
+		fmt.Sprintf("Show Navigation bar: %s", getBoolText(m.app.config.ShowNavigationBar)),
+		fmt.Sprintf("Show Settings bar: %s", getBoolText(m.app.config.ShowSettingsBar)),
+		fmt.Sprintf("Show Inactive Items: %s", getBoolText(m.app.config.ShowInactiveItems)),
+		fmt.Sprintf("Show Alarm 2: %s", getBoolText(m.app.config.ShowAlarm2)),
+		fmt.Sprintf("Show Sleep Timer: %s", getBoolText(m.app.config.ShowSleepTimer)),
 		"Back",
 	}
 
@@ -1186,7 +1253,7 @@ func (m Model) renderAlarmEdit() string {
 	if a.Source == config.SourceBuzzer {
 		toneFile := a.AlarmSourceValue
 		if toneFile == "" {
-			toneFile = "pattern1.tone"
+			toneFile = "<not set>"
 		}
 		menuOptions = append(menuOptions, fmt.Sprintf("Tone: %s", toneFile))
 	} else if a.Source == config.SourceMP3 {
@@ -1226,7 +1293,7 @@ func (m Model) renderSleepEdit() string {
 	if sleepTimer.Source == config.SourceSoother {
 		soundFile := sleepTimer.AlarmSourceValue
 		if soundFile == "" {
-			soundFile = "noise1.tone"
+			soundFile = "<not set>"
 		}
 		menuOptions = append(menuOptions, fmt.Sprintf("Sound: %s", soundFile))
 	} else if sleepTimer.Source == config.SourceMP3 {
@@ -1581,14 +1648,6 @@ func (app *App) Stop() {
 	if app.program != nil {
 		app.program.Kill()
 	}
-}
-
-// Helper functions
-func getBoolText(value bool) string {
-	if value {
-		return "ON"
-	}
-	return "OFF"
 }
 
 // GetProgram returns the tea program for compatibility
